@@ -218,6 +218,18 @@ export const createRestClient = (vaultPath) => {
       return { ok: true, path: normalizeNotePath(notePath) };
     },
 
+    async ensureNote(notePath, content, signal) {
+      const normalized = normalizeNotePath(notePath);
+      try {
+        await client.getNote(normalized, signal);
+        return { ok: true, path: normalized, created: false };
+      } catch (error) {
+        if (!(error instanceof RestError) || error.status !== 404) throw error;
+        await client.writeNote(normalized, content, signal);
+        return { ok: true, path: normalized, created: true };
+      }
+    },
+
     async patchFrontmatter(notePath, key, value, signal) {
       if (typeof key !== 'string' || !key.trim()) throw new RestError('key is required', 400);
       const normalized = normalizeNotePath(notePath);

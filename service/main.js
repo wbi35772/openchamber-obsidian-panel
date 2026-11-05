@@ -5201,6 +5201,17 @@ var createRestClient = (vaultPath) => {
       if (response.status < 200 || response.status >= 300) throw responseError(response, "write note");
       return { ok: true, path: normalizeNotePath(notePath) };
     },
+    async ensureNote(notePath, content, signal) {
+      const normalized = normalizeNotePath(notePath);
+      try {
+        await client.getNote(normalized, signal);
+        return { ok: true, path: normalized, created: false };
+      } catch (error) {
+        if (!(error instanceof RestError) || error.status !== 404) throw error;
+        await client.writeNote(normalized, content, signal);
+        return { ok: true, path: normalized, created: true };
+      }
+    },
     async patchFrontmatter(notePath, key, value, signal) {
       if (typeof key !== "string" || !key.trim()) throw new RestError("key is required", 400);
       const normalized = normalizeNotePath(notePath);
@@ -5480,6 +5491,12 @@ var stringField = (body, name, maxLength = 2048) => {
   const value = typeof body?.[name] === "string" ? body[name].trim() : "";
   return value.length > 0 && value.length <= maxLength ? value : "";
 };
+var localStamp = (date = /* @__PURE__ */ new Date()) => {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+};
+var yamlString = (value) => `'${String(value ?? "").replace(/'/g, "''")}'`;
+var slugTitle = (title) => String(title ?? "").replace(/[\\/:*?"<>|#^[\]]/g, "").replace(/\s+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "task";
 var createService = ({ runtime, token, port = 0 }) => {
   if (!runtime?.surfaceFrame || !runtime?.close) throw new Error("createService requires an Obsidian runtime");
   if (typeof token !== "string" || token.length === 0) throw new Error("createService requires a bearer token");
@@ -5665,6 +5682,139 @@ var createService = ({ runtime, token, port = 0 }) => {
         if (!notePath) return text(response, 400, "notePath is required\n");
         const content = typeof body?.content === "string" ? body.content : "";
         return restAction(response, async () => client().writeNote(notePath, content));
+      }
+      if (url.pathname === "/obsidian/rest/tasks") {
+        const folder = stringField(body, "folder", 512);
+        if (!folder) return text(response, 400, "folder is required\n");
+        const limit = Math.min(Math.max(Number(body?.limit) || 100, 1), 200);
+        return restAction(response, async () => {
+          const rest = client();
+          const files = (await rest.listMarkdown(folder, false)).slice(0, limit);
+          const tasks = [];
+          for (let index = 0; index < files.length; index += 6) {
+            const batch = files.slice(index, index + 6);
+            const notes = await Promise.all(batch.map(async (file) => {
+              try {
+                const note = await rest.getNote(file.path);
+                return {
+                  path: file.path,
+                  name: file.name,
+                  mtime: file.mtime,
+                  size: file.size,
+                  frontmatter: note.frontmatter ?? {},
+                  tags: Array.isArray(note.tags) ? note.tags : []
+                };
+              } catch {
+                return null;
+              }
+            }));
+            tasks.push(...notes.filter(Boolean));
+          }
+          return { ok: true, folder, tasks };
+        });
+      }
+      if (url.pathname === "/obsidian/rest/project/init") {
+        const project = stringField(body, "project", 120);
+        if (!project) return text(response, 400, "project is required\n");
+        if (/[\\/]|\.\./.test(project)) return text(response, 400, "project must be a single folder name\n");
+        const baseFolder = stringField(body, "baseFolder", 512) || "20-\u7B14\u8BB0/\u9879\u76EE";
+        const projectPath = typeof body?.projectPath === "string" ? body.projectPath.trim().slice(0, 1024) : "";
+        const folder = `${baseFolder}/${project}`;
+        return restAction(response, async () => {
+          const rest = client();
+          const stamp = localStamp();
+          const index = `---
+type: project
+status: active
+project: ${yamlString(project)}
+path: ${yamlString(projectPath)}
+updated_at: ${yamlString(stamp)}
+---
+
+# ${project}
+
+## \u76EE\u6807
+
+## \u4EFB\u52A1
+
+- [[${folder}/\u4EFB\u52A1/README|\u4EFB\u52A1\u7D22\u5F15]]
+
+## \u6587\u6863
+`;
+          const tasksIndex = `---
+type: index
+status: active
+project: ${yamlString(project)}
+updated_at: ${yamlString(stamp)}
+---
+
+# ${project} \u4EFB\u52A1
+
+\u4EFB\u52A1\u5361\u653E\u5728\u672C\u76EE\u5F55\uFF0C\u4E00\u5F20\u5361\u4E00\u4E2A\u6587\u4EF6\u3002
+`;
+          const indexNote = await rest.ensureNote(`${folder}/index.md`, index);
+          const tasksNote = await rest.ensureNote(`${folder}/\u4EFB\u52A1/README.md`, tasksIndex);
+          return { ok: true, folder, index: indexNote, tasks: tasksNote };
+        });
+      }
+      if (url.pathname === "/obsidian/rest/task/create") {
+        const folder = stringField(body, "folder", 512);
+        const title = stringField(body, "title", 200);
+        if (!folder) return text(response, 400, "folder is required\n");
+        if (!title) return text(response, 400, "title is required\n");
+        const project = stringField(body, "project", 120);
+        const priority = ["P0", "P1", "P2", "P3"].includes(body?.priority) ? body.priority : "P1";
+        const agent = stringField(body, "assigned_agent", 120) || "opencode";
+        const spec = typeof body?.spec === "string" ? body.spec.slice(0, 8e3) : "";
+        const criteria = typeof body?.criteria === "string" ? body.criteria.slice(0, 4e3) : "";
+        return restAction(response, async () => {
+          const rest = client();
+          const slug = slugTitle(title);
+          let target = `${folder}/${slug}.md`;
+          for (let suffix = 2; suffix < 50; suffix += 1) {
+            try {
+              await rest.getNote(target);
+              target = `${folder}/${slug}-${suffix}.md`;
+            } catch (error) {
+              if (error?.status === 404) break;
+              throw error;
+            }
+          }
+          const stamp = localStamp();
+          const taskId = `TASK-${stamp.replace(/[-: ]/g, "").slice(0, 14)}`;
+          const criteriaLines = criteria.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => /^[-*]\s*\[[ xX]\]/.test(line) ? line : `- [ ] ${line.replace(/^[-*]\s*/, "")}`);
+          const markdown = `---
+type: AgentTask
+task_id: ${yamlString(taskId)}
+project: ${yamlString(project)}
+status: todo
+priority: ${priority}
+assigned_agent: ${yamlString(agent)}
+rules_profile: []
+session_id: ""
+created_at: ${yamlString(stamp)}
+updated_at: ${yamlString(stamp)}
+---
+
+# ${title}
+
+## Task Spec
+
+${spec || "_Describe the task._"}
+
+## Acceptance Criteria
+
+${criteriaLines.length ? criteriaLines.join("\n") : "- [ ] _Define the acceptance criteria._"}
+
+## Agent Execution Log
+`;
+          const result = await rest.ensureNote(target, markdown);
+          return {
+            ok: true,
+            ...result,
+            task: { path: target, title, task_id: taskId, project, status: "todo", priority, assigned_agent: agent }
+          };
+        });
       }
       return text(response, 404, "Not found\n");
     }
