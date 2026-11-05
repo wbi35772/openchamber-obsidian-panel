@@ -37,11 +37,16 @@
       input, textarea, select {
         border: 1px solid var(--oc-border, rgba(127,127,127,.35));
         border-radius: var(--oc-radius, 6px);
-        background: transparent;
-        color: inherit;
+        background-color: var(--oc-bg, Canvas);
+        color: var(--oc-fg, CanvasText);
+        color-scheme: light dark;
         font: inherit;
         padding: 5px 9px;
         outline: none;
+      }
+      select option, select optgroup {
+        background-color: var(--oc-bg, Canvas);
+        color: var(--oc-fg, CanvasText);
       }
       input:focus-visible, textarea:focus-visible, select:focus-visible {
         border-color: var(--oc-focus, currentColor);
@@ -105,6 +110,15 @@
         font-weight: 600;
       }
       #tasks { flex: 1; min-height: 0; overflow: auto; padding: 2px 8px 12px; display: flex; flex-direction: column; gap: 5px; }
+      .sessions { border-top: 1px solid var(--oc-border, rgba(127,127,127,.25)); padding: 6px 8px 8px; max-height: 168px; overflow: auto; }
+      .sessions[hidden] { display: none; }
+      .sessions-head { display: flex; align-items: center; gap: 6px; padding: 2px 4px 6px; font-size: 10px; letter-spacing: .6px; text-transform: uppercase; color: var(--oc-muted, rgba(127,127,127,.9)); }
+      .sessions-head .count { margin-left: auto; }
+      .session { display: flex; align-items: center; gap: 7px; width: 100%; height: auto; padding: 5px 6px; border: 1px solid transparent; border-radius: 7px; background: transparent; font-size: 12px; text-align: left; cursor: pointer; }
+      .session:hover { background: var(--oc-hover, rgba(127,127,127,.12)); }
+      .session[aria-pressed="true"] { background: var(--oc-selection, rgba(127,127,127,.18)); border-color: var(--oc-border, rgba(127,127,127,.35)); }
+      .session-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .session-meta { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--oc-muted, rgba(127,127,127,.9)); white-space: nowrap; }
       .task {
         display: block;
         width: 100%;
@@ -219,10 +233,14 @@
             <button type="button" data-filter="blocked" aria-pressed="false">Blocked</button>
             <button type="button" data-filter="done" aria-pressed="false">Done</button>
           </div>
+          <section class="sessions" id="sessions-panel" hidden>
+            <div class="sessions-head"><span>Sessions</span><span class="count" id="session-count">0</span></div>
+            <div id="sessions"></div>
+          </section>
           <div id="tasks" role="listbox" aria-label="Tasks"></div>
         </section>
         <section class="detail" id="detail">
-          <p class="empty">Create or select a vault project to load its task cards.</p>
+          <p class="empty">Create or select a vault project to load its tasks.</p>
         </section>
       </main>
       <footer><span id="activity">Ready.</span></footer>
@@ -230,9 +248,9 @@
 
     <dialog id="project-dialog">
       <form id="project-form" method="dialog">
-        <h2>New project</h2>
-        <label class="field"><span>Project name</span><input id="p-name" type="text" maxlength="120" required autocomplete="off" placeholder="Project folder in 20-笔记/项目"></label>
-        <label class="field"><span>Code directory (optional)</span><input id="p-path" type="text" maxlength="1024" autocomplete="off" placeholder="D:\Project\..."></label>
+        <h2>New vault project</h2>
+        <p class="empty">Creates the folder under 20-笔记/项目. OpenChamber projects are synced automatically and need no manual setup.</p>
+        <label class="field"><span>Project name</span><input id="p-name" type="text" maxlength="120" required autocomplete="off" placeholder="Folder name in 20-笔记/项目"></label>
         <div class="dialog-actions">
           <button id="p-cancel" type="button">Cancel</button>
           <button id="p-create" class="primary" type="submit">Create project</button>
@@ -255,6 +273,7 @@
           </label>
           <label class="field"><span>Agent</span><input id="f-agent" type="text" value="opencode" maxlength="120" autocomplete="off"></label>
         </div>
+        <label class="field"><span>Session (synced from the selected project)</span><select id="f-session"></select></label>
         <label class="field"><span>Task spec</span><textarea id="f-spec" maxlength="8000" placeholder="What should the agent do?"></textarea></label>
         <label class="field"><span>Acceptance criteria, one per line</span><textarea id="f-criteria" maxlength="4000" placeholder="Tests pass&#10;Docs updated"></textarea></label>
         <div class="dialog-actions">

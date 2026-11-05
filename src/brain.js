@@ -14,6 +14,9 @@ const nodes = {
   error: document.querySelector('#error'),
   count: document.querySelector('#count'),
   filters: document.querySelector('#filters'),
+  sessionsPanel: document.querySelector('#sessions-panel'),
+  sessions: document.querySelector('#sessions'),
+  sessionCount: document.querySelector('#session-count'),
   tasks: document.querySelector('#tasks'),
   detail: document.querySelector('#detail'),
   newTask: document.querySelector('#new-task'),
@@ -25,11 +28,11 @@ const nodes = {
   fAgent: document.querySelector('#f-agent'),
   fSpec: document.querySelector('#f-spec'),
   fCriteria: document.querySelector('#f-criteria'),
+  fSession: document.querySelector('#f-session'),
   fCancel: document.querySelector('#f-cancel'),
   projectDialog: document.querySelector('#project-dialog'),
   projectForm: document.querySelector('#project-form'),
   pName: document.querySelector('#p-name'),
-  pPath: document.querySelector('#p-path'),
   pCancel: document.querySelector('#p-cancel'),
 };
 
@@ -49,6 +52,8 @@ const state = {
   ocProjectId: '',
   ocProjectName: '',
   ocProjectDirectory: '',
+  sessions: [],
+  sessionId: '',
   tasks: [],
   filter: 'all',
   selectedPath: '',
@@ -129,6 +134,7 @@ const persist = async () => {
       vaultPath: state.vaultPath,
       baseFolder: state.baseFolder,
       projectName: state.projectName,
+      ocProjectId: state.ocProjectId,
     });
   } catch {}
 };
@@ -140,6 +146,7 @@ const loadSettings = async () => {
       if (typeof saved.vaultPath === 'string' && saved.vaultPath.trim()) state.vaultPath = saved.vaultPath.trim();
       if (typeof saved.baseFolder === 'string' && saved.baseFolder.trim()) state.baseFolder = saved.baseFolder.trim().replace(/[\\/]+/g, '/').replace(/^\/+|\/+$/g, '');
       if (typeof saved.projectName === 'string' && saved.projectName.trim()) state.projectName = saved.projectName.trim();
+      if (typeof saved.ocProjectId === 'string' && saved.ocProjectId.trim()) state.ocProjectId = saved.ocProjectId.trim();
     }
   } catch {}
 };
@@ -177,17 +184,48 @@ const loadProjects = async () => {
   } catch {
     state.ocProjects = [];
   }
-  if (state.projectName && !state.vaultProjects.includes(state.projectName)) {
-    state.projectName = '';
+  let selected = state.ocProjects.find((project) => project.id === state.ocProjectId) || null;
+  if (!selected && state.projectName) {
+    selected = state.ocProjects.find((project) => project.name === state.projectName) || null;
   }
-  if (!state.projectName) {
-    const byDirectory = state.directory && !isChatDirectory(state.directory)
-      ? state.ocProjects.find((project) => pathKey(project.directory) === pathKey(state.directory))
-      : null;
-    const candidate = byDirectory?.name || (state.vaultProjects.length === 1 ? state.vaultProjects[0] : '');
-    if (candidate && state.vaultProjects.includes(candidate)) state.projectName = candidate;
+  if (!selected && state.directory && !isChatDirectory(state.directory)) {
+    selected = state.ocProjects.find((project) => pathKey(project.directory) === pathKey(state.directory)) || null;
+  }
+  if (!selected && !state.projectName && state.ocProjects.length) selected = state.ocProjects[0];
+  if (selected) {
+    state.ocProjectId = selected.id;
+    state.ocProjectName = selected.name;
+    state.ocProjectDirectory = selected.directory;
+    state.projectName = selected.name;
+    state.projectDirectory = selected.directory;
+  } else {
+    state.ocProjectId = '';
+    state.ocProjectName = '';
+    state.ocProjectDirectory = '';
+    if (state.projectName && !state.vaultProjects.includes(state.projectName)) state.projectName = '';
+    if (!state.projectName && state.vaultProjects.length === 1) state.projectName = state.vaultProjects[0];
   }
   resolveOcProject();
+};
+
+const loadSessions = async () => {
+  if (!state.ocProjectId) {
+    state.sessions = [];
+    state.sessionId = '';
+    return;
+  }
+  try {
+    const snapshot = await host.listSessions(state.ocProjectId);
+    const records = Array.isArray(snapshot?.sessions) ? snapshot.sessions : [];
+    state.sessions = records
+      .filter((session) => !session.archivedAt)
+      .sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0));
+  } catch {
+    state.sessions = [];
+  }
+  if (state.sessionId && !state.sessions.some((session) => session.id === state.sessionId)) {
+    state.sessionId = '';
+  }
 };
 
 const selectProject = (name) => {
@@ -196,6 +234,27 @@ const selectProject = (name) => {
     state.projectName = next;
     state.projectDirectory = '';
   }
+  state.ocProjectId = '';
+  state.ocProjectName = '';
+  state.ocProjectDirectory = '';
+  state.sessions = [];
+  state.sessionId = '';
+  state.selectedPath = '';
+  state.selectedNote = null;
+  state.bound = false;
+  void persist();
+  renderAll();
+  void refresh(true);
+};
+
+const selectOpenchamberProject = (project) => {
+  state.ocProjectId = project.id;
+  state.ocProjectName = project.name;
+  state.ocProjectDirectory = project.directory;
+  state.projectName = project.name;
+  state.projectDirectory = project.directory;
+  state.sessions = [];
+  state.sessionId = '';
   state.selectedPath = '';
   state.selectedNote = null;
   state.bound = false;
@@ -265,6 +324,18 @@ const refresh = async (quiet) => {
   try {
     await loadProjects();
     await loadProject();
+    if (state.projectName && !state.bound && state.ocProjectId) {
+      await rest('project/init', {
+        baseFolder: state.baseFolder,
+        project: state.projectName,
+        projectPath: state.projectDirectory || '',
+      });
+      if (!state.vaultProjects.includes(state.projectName)) {
+        state.vaultProjects = [...state.vaultProjects, state.projectName].sort((left, right) => left.localeCompare(right, 'zh'));
+      }
+      await loadProject();
+    }
+    await loadSessions();
     await loadTasks();
     if (state.selectedPath && !state.tasks.some((task) => task.path === state.selectedPath)) {
       state.selectedPath = '';
@@ -315,38 +386,132 @@ const emptyBlock = (text, actionLabel, action) => {
   return wrap;
 };
 
+const projectValue = () => {
+  if (state.ocProjectId) return `oc:${state.ocProjectId}`;
+  if (state.projectName) return `vault:${state.projectName}`;
+  return '';
+};
+
 const renderProjects = () => {
-  const signature = `${state.vaultProjects.join('\u0000')}\u0001${state.projectName}`;
+  const signature = [
+    state.ocProjects.map((project) => `${project.id}\u0000${project.name}\u0000${project.directory}`).join('\u0001'),
+    state.vaultProjects.join('\u0000'),
+    state.projectName,
+    state.ocProjectId,
+  ].join('\u0002');
   if (signature !== state.projectSignature || nodes.projectSelect.options.length === 0) {
     state.projectSignature = signature;
     const options = [];
-    const placeholder = el('option', '', state.vaultProjects.length ? 'Select project…' : 'No vault projects yet');
+    const placeholder = el('option', '', state.ocProjects.length || state.vaultProjects.length ? 'Select project…' : 'No projects registered');
     placeholder.value = '';
     options.push(placeholder);
-    for (const name of state.vaultProjects) {
-      const option = el('option', '', name);
-      option.value = name;
-      options.push(option);
+    const linked = new Set(state.ocProjects.map((project) => project.name));
+    const vaultOnly = state.vaultProjects.filter((name) => !linked.has(name));
+    if (state.ocProjects.length) {
+      const group = el('optgroup');
+      group.label = 'OpenChamber projects';
+      for (const project of state.ocProjects) {
+        const option = el('option', '', project.name);
+        option.value = `oc:${project.id}`;
+        option.title = project.directory;
+        group.append(option);
+      }
+      options.push(group);
     }
-    if (state.projectName && !state.vaultProjects.includes(state.projectName)) {
-      const pending = el('option', '', `${state.projectName} (not initialized)`);
-      pending.value = state.projectName;
+    if (vaultOnly.length) {
+      const group = el('optgroup');
+      group.label = 'Vault only';
+      for (const name of vaultOnly) {
+        const option = el('option', '', name);
+        option.value = `vault:${name}`;
+        group.append(option);
+      }
+      options.push(group);
+    }
+    if (state.projectName && !linked.has(state.projectName) && !state.vaultProjects.includes(state.projectName)) {
+      const pending = el('option', '', `${state.projectName} (new)`);
+      pending.value = `vault:${state.projectName}`;
       options.push(pending);
     }
     nodes.projectSelect.replaceChildren(...options);
   }
-  nodes.projectSelect.value = state.projectName;
+  nodes.projectSelect.value = projectValue();
   nodes.projectSelect.disabled = state.busy;
   if (!state.projectName) {
     nodes.projectPath.textContent = `No project selected · ${state.baseFolder}`;
     nodes.projectPath.title = nodes.projectPath.textContent;
     return;
   }
-  const suffix = state.ocProjectId
-    ? ` · session project: ${state.ocProjectName}`
-    : ' · no matching OpenChamber project';
-  nodes.projectPath.textContent = `${projectFolder()}${suffix}`;
-  nodes.projectPath.title = state.ocProjectDirectory || nodes.projectPath.textContent;
+  const parts = [projectFolder(), state.ocProjectDirectory || 'vault only'];
+  if (state.sessions.length) parts.push(`${state.sessions.length} session${state.sessions.length === 1 ? '' : 's'}`);
+  nodes.projectPath.textContent = parts.join(' · ');
+  nodes.projectPath.title = nodes.projectPath.textContent;
+};
+
+const activityTone = (activity) => {
+  if (activity === 'idle') return 'tone-success';
+  if (activity === 'running') return 'tone-info';
+  if (activity === 'retrying' || activity === 'waiting-permission' || activity === 'waiting-question') return 'tone-warning';
+  return 'tone-muted';
+};
+
+const sessionLabel = (session) => {
+  const title = String(session?.title || '').trim();
+  return title || `Session ${String(session?.id || '').slice(0, 8)}`;
+};
+
+const populateSessionOptions = () => {
+  const options = [el('option', '', 'No session')];
+  options[0].value = '';
+  for (const session of state.sessions) {
+    const option = el('option', '', sessionLabel(session));
+    option.value = session.id;
+    options.push(option);
+  }
+  nodes.fSession.replaceChildren(...options);
+  nodes.fSession.value = state.sessions.some((session) => session.id === state.sessionId) ? state.sessionId : '';
+};
+
+const renderSessions = () => {
+  nodes.sessionsPanel.hidden = !state.ocProjectId;
+  nodes.sessionCount.textContent = String(state.sessions.length);
+  if (!state.ocProjectId) {
+    nodes.sessions.replaceChildren();
+    populateSessionOptions();
+    return;
+  }
+  const fragment = document.createDocumentFragment();
+  const none = el('button', 'session');
+  none.type = 'button';
+  none.setAttribute('aria-pressed', String(!state.sessionId));
+  none.append(
+    el('span', 'session-title', 'No session'),
+    el('span', 'session-meta', 'Task stays unlinked until dispatch'),
+  );
+  none.addEventListener('click', () => {
+    state.sessionId = '';
+    renderSessions();
+  });
+  fragment.append(none);
+  for (const session of state.sessions) {
+    const row = el('button', 'session');
+    row.type = 'button';
+    row.setAttribute('aria-pressed', String(session.id === state.sessionId));
+    const meta = el('span', 'session-meta');
+    meta.append(
+      badge(String(session.activity || 'unknown'), activityTone(session.activity)),
+      el('span', '', session.updatedAt ? new Date(session.updatedAt).toLocaleString() : ''),
+    );
+    row.append(el('span', 'session-title', sessionLabel(session)), meta);
+    row.addEventListener('click', () => {
+      state.sessionId = session.id;
+      renderSessions();
+    });
+    fragment.append(row);
+  }
+  if (!state.sessions.length) fragment.append(el('p', 'empty', 'No sessions in this project yet. Dispatch a task to create one.'));
+  nodes.sessions.replaceChildren(fragment);
+  populateSessionOptions();
 };
 
 const renderHeader = () => {
@@ -397,7 +562,7 @@ const renderTasks = () => {
     return;
   }
   if (!state.tasks.length) {
-    nodes.tasks.replaceChildren(emptyBlock('No task cards yet.', 'New task', openTaskDialog));
+    nodes.tasks.replaceChildren(emptyBlock('No tasks yet.', 'New task', openTaskDialog));
     return;
   }
   if (!visible.length) {
@@ -494,7 +659,7 @@ const buildBrief = (note, taskPath) => {
   const criteria = pick('Acceptance Criteria');
   const heading = title || basename(taskPath).replace(/\.md$/i, '');
   const brief = [
-    `Obsidian task card: ${taskPath} (vault ${state.vaultPath}).`,
+    `Obsidian task: ${taskPath} (vault ${state.vaultPath}).`,
     `Project: ${state.projectName}.`,
     'Follow the vault AGENTS.md rules for any note write.',
     '',
@@ -579,7 +744,7 @@ const renderDetail = () => {
         el('h1', '', 'Brain'),
         el('p', 'path', `${state.vaultPath} · ${state.baseFolder}`),
         el('p', 'empty', 'This page belongs to the Obsidian panel extension: it shares the same vault, service, and MCP bridge as the right-side panel.'),
-        el('p', 'empty', 'Create a project, initialize its folder in the vault, then add task cards and dispatch them to an agent session.'),
+        el('p', 'empty', 'Create a project, initialize its folder in the vault, then add tasks and dispatch them to an agent session.'),
       );
       return;
     }
@@ -587,9 +752,9 @@ const renderDetail = () => {
       el('h1', '', state.projectName),
       el('p', 'path', projectFolder()),
       el('p', 'empty', state.bound
-        ? 'Select a task card to inspect it.'
+        ? 'Select a task to inspect it.'
         : 'This project is not initialized yet. Use Initialize in the header.'),
-      el('p', 'empty', 'Dispatch sends the task card to a new agent session; Compose writes the brief into the current chat.'),
+      el('p', 'empty', 'Dispatch sends the task to a new agent session; Compose writes the brief into the current chat.'),
     );
     return;
   }
@@ -677,6 +842,7 @@ const renderAll = () => {
   renderHeader();
   renderError();
   renderFilters();
+  renderSessions();
   renderTasks();
   renderDetail();
   renderActivity();
@@ -732,12 +898,11 @@ const createProject = async () => {
     nodes.pName.focus();
     return;
   }
-  const directory = nodes.pPath.value.trim().slice(0, 1024);
   nodes.projectForm.querySelectorAll('button, input').forEach((node) => { node.disabled = true; });
   try {
-    await rest('project/init', { baseFolder: state.baseFolder, project: name, projectPath: directory });
+    await rest('project/init', { baseFolder: state.baseFolder, project: name });
     state.projectName = name;
-    state.projectDirectory = directory;
+    state.projectDirectory = '';
     state.bound = true;
     state.vaultProjects = [...new Set([...state.vaultProjects, name])].sort((left, right) => left.localeCompare(right, 'zh'));
     state.selectedPath = '';
@@ -762,7 +927,6 @@ const createProject = async () => {
 const openProjectDialog = () => {
   if (state.busy) return;
   nodes.pName.value = '';
-  nodes.pPath.value = state.projectDirectory || '';
   nodes.projectDialog.showModal();
   nodes.pName.focus();
 };
@@ -779,6 +943,7 @@ const openTaskDialog = async () => {
   nodes.fTitle.value = '';
   nodes.fSpec.value = '';
   nodes.fCriteria.value = '';
+  populateSessionOptions();
   nodes.dialog.showModal();
   nodes.fTitle.focus();
 };
@@ -803,6 +968,8 @@ const createTask = async () => {
     assigned_agent: nodes.fAgent.value.trim() || 'opencode',
     spec: nodes.fSpec.value,
     criteria: nodes.fCriteria.value,
+    session_id: state.sessionId || '',
+    session_title: state.sessions.find((session) => session.id === state.sessionId)?.title || '',
   };
   nodes.form.querySelectorAll('button, input, textarea, select').forEach((node) => { node.disabled = true; });
   try {
@@ -880,12 +1047,23 @@ nodes.vault.addEventListener('keydown', (event) => {
 });
 
 nodes.projectSelect.addEventListener('change', () => {
-  selectProject(nodes.projectSelect.value);
+  const value = nodes.projectSelect.value;
+  if (value.startsWith('oc:')) {
+    const project = state.ocProjects.find((item) => item.id === value.slice(3));
+    if (project) selectOpenchamberProject(project);
+    return;
+  }
+  if (value.startsWith('vault:')) {
+    selectProject(value.slice(6));
+    return;
+  }
+  selectProject('');
 });
 
 host.onReady((context) => {
   applyHostReady(context, document.documentElement);
   applyDirectory(context?.directory);
+  if (context?.session?.id) state.sessionId = context.session.id;
   renderHeader();
   if (!state.ready) {
     state.ready = true;

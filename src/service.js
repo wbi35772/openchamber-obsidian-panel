@@ -418,6 +418,8 @@ export const createService = ({ runtime, token, port = 0 }) => {
         const agent = stringField(body, 'assigned_agent', 120) || 'opencode';
         const spec = typeof body?.spec === 'string' ? body.spec.slice(0, 8000) : '';
         const criteria = typeof body?.criteria === 'string' ? body.criteria.slice(0, 4000) : '';
+        const sessionId = stringField(body, 'session_id', 200);
+        const sessionTitle = stringField(body, 'session_title', 200);
         return restAction(response, async () => {
           const rest = client();
           const slug = slugTitle(title);
@@ -438,12 +440,12 @@ export const createService = ({ runtime, token, port = 0 }) => {
             .map((line) => line.trim())
             .filter(Boolean)
             .map((line) => (/^[-*]\s*\[[ xX]\]/.test(line) ? line : `- [ ] ${line.replace(/^[-*]\s*/, '')}`));
-          const markdown = `---\ntype: AgentTask\ntask_id: ${yamlString(taskId)}\ntitle: ${yamlString(title)}\nproject: ${yamlString(project)}\nstatus: todo\npriority: ${priority}\nassigned_agent: ${yamlString(agent)}\nrules_profile: []\nsession_id: ""\ncreated_at: ${yamlString(stamp)}\nupdated_at: ${yamlString(stamp)}\n---\n\n# ${title}\n\n## Task Spec\n\n${spec || '_Describe the task._'}\n\n## Acceptance Criteria\n\n${criteriaLines.length ? criteriaLines.join('\n') : '- [ ] _Define the acceptance criteria._'}\n\n## Agent Execution Log\n`;
+          const markdown = `---\ntype: AgentTask\ntask_id: ${yamlString(taskId)}\ntitle: ${yamlString(title)}\nproject: ${yamlString(project)}\nstatus: todo\npriority: ${priority}\nassigned_agent: ${yamlString(agent)}\nrules_profile: []\nsession_id: ${yamlString(sessionId)}\nsession_title: ${yamlString(sessionTitle)}\ncreated_at: ${yamlString(stamp)}\nupdated_at: ${yamlString(stamp)}\n---\n\n# ${title}\n\n## Task Spec\n\n${spec || '_Describe the task._'}\n\n## Acceptance Criteria\n\n${criteriaLines.length ? criteriaLines.join('\n') : '- [ ] _Define the acceptance criteria._'}\n\n## Agent Execution Log\n`;
           const result = await rest.ensureNote(target, markdown);
           return {
             ok: true,
             ...result,
-            task: { path: target, title, task_id: taskId, project, status: 'todo', priority, assigned_agent: agent },
+            task: { path: target, title, task_id: taskId, project, status: 'todo', priority, assigned_agent: agent, session_id: sessionId, session_title: sessionTitle },
           };
         });
       }

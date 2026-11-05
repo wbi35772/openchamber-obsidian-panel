@@ -5782,6 +5782,8 @@ updated_at: ${yamlString(stamp)}
         const agent = stringField(body, "assigned_agent", 120) || "opencode";
         const spec = typeof body?.spec === "string" ? body.spec.slice(0, 8e3) : "";
         const criteria = typeof body?.criteria === "string" ? body.criteria.slice(0, 4e3) : "";
+        const sessionId = stringField(body, "session_id", 200);
+        const sessionTitle = stringField(body, "session_title", 200);
         return restAction(response, async () => {
           const rest = client();
           const slug = slugTitle(title);
@@ -5807,7 +5809,8 @@ status: todo
 priority: ${priority}
 assigned_agent: ${yamlString(agent)}
 rules_profile: []
-session_id: ""
+session_id: ${yamlString(sessionId)}
+session_title: ${yamlString(sessionTitle)}
 created_at: ${yamlString(stamp)}
 updated_at: ${yamlString(stamp)}
 ---
@@ -5828,7 +5831,7 @@ ${criteriaLines.length ? criteriaLines.join("\n") : "- [ ] _Define the acceptanc
           return {
             ok: true,
             ...result,
-            task: { path: target, title, task_id: taskId, project, status: "todo", priority, assigned_agent: agent }
+            task: { path: target, title, task_id: taskId, project, status: "todo", priority, assigned_agent: agent, session_id: sessionId, session_title: sessionTitle }
           };
         });
       }
