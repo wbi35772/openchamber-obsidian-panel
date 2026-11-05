@@ -81,6 +81,19 @@ const api = async (path, body) => {
 
 const rest = (route, body) => api(`/obsidian/rest/${route}`, { vaultPath: state.vaultPath, ...body });
 
+let serviceBase = '';
+const noteUrl = async (notePath) => {
+  if (!serviceBase) {
+    try {
+      const info = await rest('service-info', {});
+      if (typeof info?.base === 'string' && /^http:\/\/127\.0\.0\.1:\d+$/.test(info.base)) serviceBase = info.base;
+    } catch {}
+  }
+  if (!serviceBase) return 'https://obsidian.md';
+  const vault = basename(state.vaultPath);
+  return `${serviceBase}/obsidian/open?vault=${encodeURIComponent(vault)}&path=${encodeURIComponent(notePath)}`;
+};
+
 const projectFolder = () => (state.projectName ? `${state.baseFolder}/${state.projectName}` : '');
 const taskFolder = () => (projectFolder() ? `${projectFolder()}/任务` : '');
 
@@ -442,7 +455,7 @@ const dispatch = async (task) => {
       providerId: 'obsidian',
       id: task.path,
       title: taskTitle(task),
-      url: `obsidian://open?vault=${encodeURIComponent(basename(state.vaultPath))}&file=${encodeURIComponent(task.path)}`,
+      url: await noteUrl(task.path),
       text: buildBrief(task),
       ...(state.ocProjectId ? { projectId: state.ocProjectId } : {}),
       navigation: 'open',

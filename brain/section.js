@@ -1846,6 +1846,19 @@ ${GUEST_UI_LOOK_CSS}`;
     return parsed;
   };
   var rest = (route, body) => api(`/obsidian/rest/${route}`, { vaultPath: state.vaultPath, ...body });
+  var serviceBase = "";
+  var noteUrl = async (notePath) => {
+    if (!serviceBase) {
+      try {
+        const info = await rest("service-info", {});
+        if (typeof info?.base === "string" && /^http:\/\/127\.0\.0\.1:\d+$/.test(info.base)) serviceBase = info.base;
+      } catch {
+      }
+    }
+    if (!serviceBase) return "https://obsidian.md";
+    const vault = basename(state.vaultPath);
+    return `${serviceBase}/obsidian/open?vault=${encodeURIComponent(vault)}&path=${encodeURIComponent(notePath)}`;
+  };
   var projectFolder = () => state.projectName ? `${state.baseFolder}/${state.projectName}` : "";
   var taskFolder = () => projectFolder() ? `${projectFolder()}/\u4EFB\u52A1` : "";
   var taskStatus = (task) => {
@@ -2173,7 +2186,7 @@ ${GUEST_UI_LOOK_CSS}`;
         providerId: "obsidian",
         id: task.path,
         title: taskTitle(task),
-        url: `obsidian://open?vault=${encodeURIComponent(basename(state.vaultPath))}&file=${encodeURIComponent(task.path)}`,
+        url: await noteUrl(task.path),
         text: buildBrief(task),
         ...state.ocProjectId ? { projectId: state.ocProjectId } : {},
         navigation: "open"

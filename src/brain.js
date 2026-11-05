@@ -148,9 +148,18 @@ const rest = (route, body) => api(`/obsidian/rest/${route}`, { vaultPath: state.
 const projectFolder = () => (state.projectName ? `${state.baseFolder}/${state.projectName}` : '');
 const taskFolder = () => (projectFolder() ? `${projectFolder()}/任务` : '');
 
-const noteUrl = (notePath) => {
+let serviceBase = '';
+
+const noteUrl = async (notePath) => {
+  if (!serviceBase) {
+    try {
+      const info = await rest('service-info', {});
+      if (typeof info?.base === 'string' && /^http:\/\/127\.0\.0\.1:\d+$/.test(info.base)) serviceBase = info.base;
+    } catch {}
+  }
+  if (!serviceBase) return 'https://obsidian.md';
   const vault = basename(state.vaultPath);
-  return `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(notePath)}`;
+  return `${serviceBase}/obsidian/open?vault=${encodeURIComponent(vault)}&path=${encodeURIComponent(notePath)}`;
 };
 
 const persist = async () => {
@@ -713,7 +722,7 @@ const dispatch = async () => {
       providerId: 'obsidian',
       id: taskPath,
       title,
-      url: noteUrl(taskPath),
+      url: await noteUrl(taskPath),
       text: brief,
       ...(state.ocProjectId ? { projectId: state.ocProjectId } : {}),
       navigation: 'open',

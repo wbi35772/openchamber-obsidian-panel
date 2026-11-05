@@ -5498,6 +5498,7 @@ var localStamp = (date = /* @__PURE__ */ new Date()) => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 };
 var yamlString = (value) => `'${String(value ?? "").replace(/'/g, "''")}'`;
+var escapeHtml = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 var slugTitle = (title) => String(title ?? "").replace(/[\\/:*?"<>|#^[\]]/g, "").replace(/\s+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "task";
 var createService = ({ runtime, token, port = 0 }) => {
   if (!runtime?.surfaceFrame || !runtime?.close) throw new Error("createService requires an Obsidian runtime");
@@ -5507,8 +5508,35 @@ var createService = ({ runtime, token, port = 0 }) => {
   let listening = false;
   let closePromise = null;
   const handle = async (request2, response, signal) => {
-    if (!authorized(request2, token)) return text(response, 401, "Unauthorized\n");
     const url = new URL(request2.url ?? "/", "http://127.0.0.1");
+    if (request2.method === "GET" && url.pathname === "/obsidian/open") {
+      const notePath = url.searchParams.get("path") || "";
+      if (!notePath) return text(response, 400, "path is required\n");
+      const vault = url.searchParams.get("vault") || "";
+      const target = `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(notePath)}`;
+      const page = `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>\u5728 Obsidian \u6253\u5F00</title>
+<style>
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 14px system-ui, sans-serif; background: #101014; color: #e6e6e6; }
+a { color: #6aa9ff; }
+</style>
+</head>
+<body>
+<div>
+<p>\u6B63\u5728\u5524\u8D77 Obsidian\u2026</p>
+<p>\u6CA1\u6709\u81EA\u52A8\u6253\u5F00\uFF1F<a href="${escapeHtml(target)}">\u70B9\u8FD9\u91CC</a></p>
+</div>
+<script>window.setTimeout(() => { window.location.href = ${JSON.stringify(target)}; }, 60);</script>
+</body>
+</html>`;
+      response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+      response.end(page);
+      return;
+    }
+    if (!authorized(request2, token)) return text(response, 401, "Unauthorized\n");
     if (request2.method === "GET" && url.pathname === "/health") return json(response, 200, { ok: true });
     if (request2.method === "GET" && url.pathname === "/obsidian/status") {
       return json(response, 200, await runtime.status());
@@ -5613,6 +5641,11 @@ var createService = ({ runtime, token, port = 0 }) => {
     }
     if (request2.method === "POST" && url.pathname.startsWith("/obsidian/rest/")) {
       const body = await readObjectBody(request2);
+      if (url.pathname === "/obsidian/rest/service-info") {
+        const address = server.address();
+        const boundPort = address && typeof address === "object" ? address.port : 0;
+        return json(response, 200, { ok: true, base: boundPort ? `http://127.0.0.1:${boundPort}` : "" });
+      }
       const vaultPath = stringField(body, "vaultPath", 1024);
       const notePath = stringField(body, "notePath", 2048);
       if (!vaultPath) return text(response, 400, "vaultPath is required\n");

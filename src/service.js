@@ -122,6 +122,12 @@ const localStamp = (date = new Date()) => {
 
 const yamlString = (value) => `'${String(value ?? '').replace(/'/g, "''")}'`;
 
+const escapeHtml = (value) => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+
 const slugTitle = (title) => String(title ?? '')
   .replace(/[\\/:*?"<>|#^[\]]/g, '')
   .replace(/\s+/g, '-')
@@ -137,8 +143,37 @@ export const createService = ({ runtime, token, port = 0 }) => {
   let closePromise = null;
 
   const handle = async (request, response, signal) => {
-    if (!authorized(request, token)) return text(response, 401, 'Unauthorized\n');
     const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+
+    if (request.method === 'GET' && url.pathname === '/obsidian/open') {
+      const notePath = url.searchParams.get('path') || '';
+      if (!notePath) return text(response, 400, 'path is required\n');
+      const vault = url.searchParams.get('vault') || '';
+      const target = `obsidian://open?vault=${encodeURIComponent(vault)}&file=${encodeURIComponent(notePath)}`;
+      const page = `<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>在 Obsidian 打开</title>
+<style>
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; font: 14px system-ui, sans-serif; background: #101014; color: #e6e6e6; }
+a { color: #6aa9ff; }
+</style>
+</head>
+<body>
+<div>
+<p>正在唤起 Obsidian…</p>
+<p>没有自动打开？<a href="${escapeHtml(target)}">点这里</a></p>
+</div>
+<script>window.setTimeout(() => { window.location.href = ${JSON.stringify(target)}; }, 60);</script>
+</body>
+</html>`;
+      response.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+      response.end(page);
+      return;
+    }
+
+    if (!authorized(request, token)) return text(response, 401, 'Unauthorized\n');
 
     if (request.method === 'GET' && url.pathname === '/health') return json(response, 200, { ok: true });
 
@@ -259,6 +294,11 @@ export const createService = ({ runtime, token, port = 0 }) => {
 
     if (request.method === 'POST' && url.pathname.startsWith('/obsidian/rest/')) {
       const body = await readObjectBody(request);
+      if (url.pathname === '/obsidian/rest/service-info') {
+        const address = server.address();
+        const boundPort = address && typeof address === 'object' ? address.port : 0;
+        return json(response, 200, { ok: true, base: boundPort ? `http://127.0.0.1:${boundPort}` : '' });
+      }
       const vaultPath = stringField(body, 'vaultPath', 1024);
       const notePath = stringField(body, 'notePath', 2048);
       if (!vaultPath) return text(response, 400, 'vaultPath is required\n');
