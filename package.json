@@ -1,0 +1,37 @@
+{
+  "name": "obsidian-panel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mirror the local Obsidian window in the OpenChamber right panel.",
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  },
+  "openchamber": {
+    "apiVersion": 1,
+    "engines": { "openchamber": ">=2.0.1" },
+    "contributes": {
+      "panel": {
+        "id": "obsidian-panel",
+        "name": "Obsidian",
+        "icon": "icon.svg",
+        "entry": "panel/index.html",
+        "dock": "top",
+        "size": 104
+      },
+      "service": {
+        "entry": "service/main.js",
+        "runtime": "host",
+        "surface": true,
+        "permissions": {
+          "exec": ["Obsidian.exe", "powershell.exe", "tasklist.exe"]
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@openchamber/sdk": "2.6.0",
+    "esbuild": "0.28.0",
+    "ws": "8.18.3"
+  }
+}

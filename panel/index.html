@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Obsidian</title>
+    <style>
+      :root { color-scheme: light dark; font-family: var(--oc-font, ui-sans-serif, system-ui, sans-serif); }
+      * { box-sizing: border-box; }
+      html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+      #root {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        grid-template-rows: 28px 28px;
+        gap: 6px 8px;
+        align-content: center;
+        padding: 8px 10px;
+        background: var(--oc-bg, transparent);
+        color: var(--oc-fg, inherit);
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .brand svg { width: 16px; height: 16px; color: var(--oc-muted, currentColor); }
+      .status {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 6px;
+        color: var(--oc-muted, currentColor);
+        font-size: 11px;
+      }
+      .status .dot {
+        width: 7px;
+        height: 7px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: var(--oc-muted, currentColor);
+        opacity: .65;
+      }
+      .status-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .status[data-state="connected"] .dot { background: var(--oc-success, #3fb950); opacity: 1; }
+      .status[data-state="warning"] .dot { background: var(--oc-warning, #d29922); opacity: 1; }
+      .status[data-state="error"] .dot { background: var(--oc-error, #f85149); opacity: 1; }
+      .status[data-state="error"] { color: var(--oc-error-text, var(--oc-error, currentColor)); }
+      .primary {
+        height: 28px;
+        padding: 0 12px;
+        border: 1px solid var(--oc-border, currentColor);
+        border-radius: 999px;
+        background: var(--oc-selection, var(--oc-hover, transparent));
+        color: var(--oc-selection-fg, var(--oc-fg, inherit));
+        font-size: 12px;
+        font-weight: 500;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .primary:hover:not(:disabled) { background: var(--oc-active, var(--oc-hover, transparent)); }
+      .row2 { grid-column: 1 / -1; display: flex; min-width: 0; align-items: center; gap: 6px; }
+      .vaults {
+        display: flex;
+        min-width: 0;
+        flex: 1;
+        align-items: center;
+        gap: 4px;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+      .vaults::-webkit-scrollbar { display: none; }
+      .vaults[hidden] { display: none; }
+      .vault {
+        height: 28px;
+        max-width: 180px;
+        flex: 0 0 auto;
+        padding: 0 10px;
+        border: 1px solid transparent;
+        border-radius: 999px;
+        background: transparent;
+        color: var(--oc-muted, currentColor);
+        font-size: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        cursor: pointer;
+      }
+      .vault:hover:not(:disabled) { background: var(--oc-hover, transparent); color: var(--oc-fg, inherit); }
+      .vault[aria-selected="true"] {
+        border-color: var(--oc-border, currentColor);
+        background: var(--oc-selection, var(--oc-hover, transparent));
+        color: var(--oc-selection-fg, var(--oc-fg, inherit));
+        font-weight: 500;
+      }
+      .actions { display: flex; flex: 0 0 auto; align-items: center; gap: 6px; }
+      .openform { display: flex; min-width: 0; flex: 1; align-items: center; gap: 6px; }
+      .openform[hidden] { display: none; }
+      .path {
+        min-width: 0;
+        flex: 1;
+        height: 28px;
+        padding: 0 10px;
+        border: 1px solid var(--oc-border, currentColor);
+        border-radius: 999px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-size: 12px;
+      }
+      .path::placeholder { color: var(--oc-muted, currentColor); }
+      .icon {
+        display: inline-flex;
+        width: 28px;
+        height: 28px;
+        flex: 0 0 28px;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+        border: 0;
+        border-radius: var(--oc-radius, 6px);
+        background: transparent;
+        color: var(--oc-muted, currentColor);
+        cursor: pointer;
+      }
+      .icon:hover:not(:disabled) { background: var(--oc-hover, transparent); color: var(--oc-fg, inherit); }
+      .icon svg { width: 16px; height: 16px; pointer-events: none; }
+      button:disabled { cursor: default; opacity: .55; }
+      button:focus-visible, select:focus-visible { outline: 2px solid var(--oc-focus, currentColor); outline-offset: 1px; }
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <div class="brand">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v18H6.5A2.5 2.5 0 0 1 4 18.5z"/>
+          <path d="M4 18.5A2.5 2.5 0 0 1 6.5 16H20"/>
+          <path d="M8 7h8"/>
+        </svg>
+        <span>Obsidian</span>
+      </div>
+      <span id="status" class="status" data-state="idle" role="status" aria-live="polite">
+        <span class="dot"></span>
+        <span id="status-text" class="status-text">Starting…</span>
+      </span>
+      <button id="primary" class="primary" type="button">Open</button>
+      <div class="row2">
+        <div id="vaults" class="vaults" role="tablist" aria-label="Obsidian vaults" hidden></div>
+        <div class="actions" id="actions">
+        <button id="add" class="icon" type="button" title="Choose a folder to open a vault (cancel to type the path)" aria-label="Open or create a vault">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 5v14"/>
+            <path d="M5 12h14"/>
+          </svg>
+        </button>
+        <button id="show" class="icon" type="button" title="Bring the Obsidian window to the front" aria-label="Bring the Obsidian window to the front">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14 4h6v6"/>
+            <path d="m20 4-9 9"/>
+            <path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"/>
+          </svg>
+        </button>
+        <button id="restart" class="icon" type="button" title="Restart Obsidian with the debug port" aria-label="Restart Obsidian">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 11a8 8 0 1 0-2.34 5.66"/>
+            <path d="M20 4v7h-7"/>
+          </svg>
+        </button>
+        </div>
+        <div id="openform" class="openform" hidden>
+          <input id="path" class="path" type="text" spellcheck="false" autocomplete="off" placeholder="Vault path, created if missing" aria-label="Vault path">
+          <button id="open-go" class="primary" type="button">Open</button>
+          <button id="open-cancel" class="icon" type="button" title="Cancel" aria-label="Cancel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true">
+              <path d="M6 6l12 12"/>
+              <path d="M18 6 6 18"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+    <script src="./main.js"></script>
+  </body>
+</html>
