@@ -299,6 +299,63 @@ a { color: #6aa9ff; }
         const boundPort = address && typeof address === 'object' ? address.port : 0;
         return json(response, 200, { ok: true, base: boundPort ? `http://127.0.0.1:${boundPort}` : '' });
       }
+
+      // The rail panel draws the Obsidian picture itself so it can share the
+      // panel with the Brain pane. These routes carry the same payloads the
+      // host surface protocol uses, but over the guest bridge and as JSON.
+      if (url.pathname === '/obsidian/rest/surface-frame') {
+        const afterRaw = Number(body?.after);
+        const waitRaw = Number(body?.wait);
+        const after = Number.isInteger(afterRaw) && afterRaw >= 0 ? Math.min(afterRaw, Number.MAX_SAFE_INTEGER) : 0;
+        const wait = Number.isFinite(waitRaw) ? Math.min(Math.max(Math.round(waitRaw), 0), 5_000) : 0;
+        try {
+          const frame = await runtime.surfaceFrame({ after, wait, signal });
+          if (!frame) return json(response, 200, { ok: true, idle: true, seq: after });
+          if (frame.bytes.length > 4_000_000) {
+            return json(response, 200, { ok: true, idle: true, seq: frame.sequence, oversize: true });
+          }
+          return json(response, 200, {
+            ok: true,
+            seq: frame.sequence,
+            width: frame.width,
+            height: frame.height,
+            mime: frame.mime,
+            data: frame.bytes.toString('base64'),
+          });
+        } catch (error) {
+          return json(response, 409, { ok: false, error: errorMessage(error) });
+        }
+      }
+
+      if (url.pathname === '/obsidian/rest/surface-input') {
+        const parsed = readSurfaceInputBatch(JSON.stringify({ events: body?.events }));
+        if (!parsed) return text(response, 400, 'Invalid surface input batch\n');
+        try {
+          await runtime.surfaceInput(parsed.events, null);
+        } catch (error) {
+          return json(response, 409, { ok: false, error: errorMessage(error) });
+        }
+        return json(response, 200, { ok: true });
+      }
+
+      if (url.pathname === '/obsidian/rest/surface-control') {
+        const parsed = readSurfaceControlNotice(JSON.stringify({ controller: body?.controller }));
+        if (!parsed) return text(response, 400, 'Invalid surface control notice\n');
+        await runtime.surfaceControl(parsed.controller, parsed.viewer ?? null);
+        return json(response, 200, { ok: true });
+      }
+
+      if (url.pathname === '/obsidian/rest/surface-resize') {
+        const parsed = readSurfaceResizeRequest(JSON.stringify({ width: body?.width, height: body?.height }));
+        if (!parsed) return text(response, 400, 'Invalid surface resize request\n');
+        return json(response, 200, { ok: true, size: await runtime.surfaceResize(parsed) });
+      }
+
+      if (url.pathname === '/obsidian/rest/surface-clipboard') {
+        const copied = await runtime.surfaceClipboard();
+        return json(response, 200, { ok: true, text: copied || '' });
+      }
+
       const vaultPath = stringField(body, 'vaultPath', 1024);
       const notePath = stringField(body, 'notePath', 2048);
       if (!vaultPath) return text(response, 400, 'vaultPath is required\n');

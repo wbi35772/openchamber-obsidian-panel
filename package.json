@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Mirror the local Obsidian window in the OpenChamber right panel.",
+  "description": "Brain task board and the local Obsidian window together in the OpenChamber right panel.",
   "scripts": {
     "build": "node scripts/build.mjs"
   },
@@ -13,11 +13,9 @@
     "contributes": {
       "panel": {
         "id": "obsidian-panel",
-        "name": "Obsidian",
+        "name": "Brain + Obsidian",
         "icon": "icon.svg",
-        "entry": "panel/index.html",
-        "dock": "top",
-        "size": 104
+        "entry": "panel/index.html"
       },
       "page": {
         "entry": "brain/index.html",
@@ -32,7 +30,6 @@
       "service": {
         "entry": "service/main.js",
         "runtime": "host",
-        "surface": true,
         "permissions": {
           "exec": ["Obsidian.exe", "powershell.exe", "tasklist.exe"]
         }
