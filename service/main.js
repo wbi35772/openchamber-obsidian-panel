@@ -2229,8 +2229,8 @@ var require_websocket = __commonJS({
   "node_modules/ws/lib/websocket.js"(exports, module) {
     "use strict";
     var EventEmitter = __require("events");
-    var https = __require("https");
-    var http2 = __require("http");
+    var https2 = __require("https");
+    var http3 = __require("http");
     var net = __require("net");
     var tls = __require("tls");
     var { randomBytes, createHash } = __require("crypto");
@@ -2761,7 +2761,7 @@ var require_websocket = __commonJS({
       }
       const defaultPort = isSecure ? 443 : 80;
       const key = randomBytes(16).toString("base64");
-      const request = isSecure ? https.request : http2.request;
+      const request2 = isSecure ? https2.request : http3.request;
       const protocolSet = /* @__PURE__ */ new Set();
       let perMessageDeflate;
       opts.createConnection = opts.createConnection || (isSecure ? tlsConnect : netConnect);
@@ -2838,12 +2838,12 @@ var require_websocket = __commonJS({
         if (opts.auth && !options.headers.authorization) {
           options.headers.authorization = "Basic " + Buffer.from(opts.auth).toString("base64");
         }
-        req = websocket._req = request(opts);
+        req = websocket._req = request2(opts);
         if (websocket._redirects) {
           websocket.emit("redirect", websocket.url, req);
         }
       } else {
-        req = websocket._req = request(opts);
+        req = websocket._req = request2(opts);
       }
       if (opts.timeout) {
         req.on("timeout", () => {
@@ -3255,7 +3255,7 @@ var require_websocket_server = __commonJS({
   "node_modules/ws/lib/websocket-server.js"(exports, module) {
     "use strict";
     var EventEmitter = __require("events");
-    var http2 = __require("http");
+    var http3 = __require("http");
     var { Duplex } = __require("stream");
     var { createHash } = __require("crypto");
     var extension = require_extension();
@@ -3326,8 +3326,8 @@ var require_websocket_server = __commonJS({
           );
         }
         if (options.port != null) {
-          this._server = http2.createServer((req, res) => {
-            const body = http2.STATUS_CODES[426];
+          this._server = http3.createServer((req, res) => {
+            const body = http3.STATUS_CODES[426];
             res.writeHead(426, {
               "Content-Length": body.length,
               "Content-Type": "text/plain"
@@ -3614,7 +3614,7 @@ var require_websocket_server = __commonJS({
       this.destroy();
     }
     function abortHandshake(socket, code, message, headers) {
-      message = message || http2.STATUS_CODES[code];
+      message = message || http3.STATUS_CODES[code];
       headers = {
         Connection: "close",
         "Content-Type": "text/html",
@@ -3623,7 +3623,7 @@ var require_websocket_server = __commonJS({
       };
       socket.once("finish", socket.destroy);
       socket.end(
-        `HTTP/1.1 ${code} ${http2.STATUS_CODES[code]}\r
+        `HTTP/1.1 ${code} ${http3.STATUS_CODES[code]}\r
 ` + Object.keys(headers).map((h) => `${h}: ${headers[h]}`).join("\r\n") + "\r\n\r\n" + message
       );
     }
@@ -3640,7 +3640,7 @@ var require_websocket_server = __commonJS({
 });
 
 // src/main.js
-import path2 from "node:path";
+import path3 from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/obsidian.js
@@ -4992,7 +4992,7 @@ var createObsidianRuntime = ({
     }
   };
   const surface = createSurface(runtime);
-  runtime.surfaceFrame = (request) => surface.frame(request);
+  runtime.surfaceFrame = (request2) => surface.frame(request2);
   runtime.surfaceInput = (events, theme) => surface.input(events, theme);
   runtime.surfaceControl = (controller) => surface.control(controller);
   runtime.surfaceResize = (size) => {
@@ -5006,7 +5006,405 @@ var createObsidianRuntime = ({
 
 // src/service.js
 import crypto2 from "node:crypto";
+import http2 from "node:http";
+
+// src/rest.js
 import http from "node:http";
+import https from "node:https";
+import { readFileSync as readFileSync2, readdirSync, statSync as statSync2 } from "node:fs";
+import path2 from "node:path";
+var REQUEST_TIMEOUT_MS = 15e3;
+var MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+var SETTINGS_TTL_MS = 3e4;
+var PATCH_ATTEMPTS = 3;
+var settingsCache = /* @__PURE__ */ new Map();
+var writeQueues = /* @__PURE__ */ new Map();
+var RestError = class extends Error {
+  constructor(message, status = 502, detail = "") {
+    super(message);
+    this.name = "RestError";
+    this.status = status;
+    this.detail = detail;
+  }
+};
+var pluginDataFile = (vaultPath) => path2.join(
+  vaultPath,
+  ".obsidian",
+  "plugins",
+  "obsidian-local-rest-api",
+  "data.json"
+);
+var readJsonFile = (file) => {
+  try {
+    return JSON.parse(readFileSync2(file, "utf8"));
+  } catch {
+    return null;
+  }
+};
+var readRestSettings = (vaultPath) => {
+  if (typeof vaultPath !== "string" || !vaultPath.trim()) {
+    throw new RestError("vaultPath is required", 400);
+  }
+  const resolved = path2.resolve(vaultPath);
+  const cached = settingsCache.get(resolved);
+  if (cached && Date.now() - cached.at < SETTINGS_TTL_MS) return cached.settings;
+  const data = readJsonFile(pluginDataFile(resolved));
+  if (!data) {
+    throw new RestError(
+      "Local REST API is not configured in this vault. Enable the plugin and copy its API key.",
+      503
+    );
+  }
+  const apiKey = typeof data.apiKey === "string" ? data.apiKey.trim() : "";
+  if (!apiKey) throw new RestError("Local REST API has no API key", 503);
+  const insecurePort = Number(data.insecurePort);
+  const securePort = Number(data.port);
+  const insecure = data.enableInsecureServer !== false && Number.isInteger(insecurePort) && insecurePort > 0;
+  const secure = data.enableSecureServer !== false && Number.isInteger(securePort) && securePort > 0;
+  if (!insecure && !secure) throw new RestError("Local REST API has no enabled HTTP server", 503);
+  const settings = {
+    vaultPath: resolved,
+    baseUrl: insecure ? `http://127.0.0.1:${insecurePort}` : `https://127.0.0.1:${securePort}`,
+    apiKey,
+    insecure,
+    insecurePort: insecure ? insecurePort : null,
+    securePort: secure ? securePort : null,
+    protocol: insecure ? "http" : "https"
+  };
+  settingsCache.set(resolved, { at: Date.now(), settings });
+  return settings;
+};
+var normalizeNotePath = (value) => {
+  if (typeof value !== "string" || !value.trim()) throw new RestError("notePath is required", 400);
+  return value.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\/{2,}/g, "/");
+};
+var encodePath = (value) => normalizeNotePath(value).split("/").map((segment) => encodeURIComponent(segment)).join("/");
+var request = (settings, method, pathname, { headers = {}, body, signal } = {}) => new Promise((resolve, reject) => {
+  let url;
+  try {
+    url = new URL(pathname, settings.baseUrl);
+  } catch (error) {
+    reject(new RestError(error.message, 400));
+    return;
+  }
+  const transport = url.protocol === "https:" ? https : http;
+  const payload = body === void 0 ? null : Buffer.from(String(body), "utf8");
+  const requestHeaders = {
+    authorization: `Bearer ${settings.apiKey}`,
+    accept: "application/json",
+    ...headers
+  };
+  if (payload) requestHeaders["content-length"] = String(payload.length);
+  const client = transport.request(url, {
+    method,
+    headers: requestHeaders,
+    rejectUnauthorized: false,
+    timeout: REQUEST_TIMEOUT_MS
+  }, (response) => {
+    const chunks = [];
+    let length = 0;
+    response.on("data", (chunk) => {
+      length += chunk.length;
+      if (length <= MAX_RESPONSE_BYTES) chunks.push(chunk);
+    });
+    response.on("end", () => {
+      const text2 = Buffer.concat(chunks).toString("utf8");
+      resolve({
+        status: response.statusCode ?? 0,
+        headers: response.headers,
+        body: text2
+      });
+    });
+  });
+  client.on("timeout", () => client.destroy(new RestError("Obsidian REST request timed out", 504)));
+  client.on("error", (error) => reject(error instanceof RestError ? error : new RestError(error.message, 502)));
+  if (signal) {
+    if (signal.aborted) {
+      client.destroy(new RestError("Obsidian REST request cancelled", 499));
+      return;
+    }
+    signal.addEventListener("abort", () => {
+      client.destroy(new RestError("Obsidian REST request cancelled", 499));
+    }, { once: true });
+  }
+  if (payload) client.write(payload);
+  client.end();
+});
+var responseError = (response, action) => {
+  let message = `Obsidian REST ${action} failed with ${response.status}`;
+  let detail = response.body.slice(0, 500);
+  try {
+    const parsed = JSON.parse(response.body);
+    if (typeof parsed?.message === "string" && parsed.message) message = parsed.message;
+    else if (typeof parsed?.error === "string" && parsed.error) message = parsed.error;
+    if (typeof parsed?.errorCode === "string") detail = `${parsed.errorCode}: ${detail}`;
+  } catch {
+  }
+  return new RestError(message, response.status === 404 ? 404 : 502, detail);
+};
+var expectJson = (response, action) => {
+  if (response.status < 200 || response.status >= 300) throw responseError(response, action);
+  try {
+    return JSON.parse(response.body);
+  } catch {
+    throw new RestError(`Obsidian REST ${action} returned invalid JSON`, 502, response.body.slice(0, 300));
+  }
+};
+var enqueueWrite = (key, task) => {
+  const previous = writeQueues.get(key) ?? Promise.resolve();
+  const next = previous.catch(() => {
+  }).then(task);
+  writeQueues.set(key, next);
+  next.finally(() => {
+    if (writeQueues.get(key) === next) writeQueues.delete(key);
+  }).catch(() => {
+  });
+  return next;
+};
+var createRestClient = (vaultPath) => {
+  const settings = readRestSettings(vaultPath);
+  const vault = settings.vaultPath;
+  const client = {
+    get settings() {
+      return {
+        vaultPath: vault,
+        baseUrl: settings.baseUrl,
+        protocol: settings.protocol,
+        insecurePort: settings.insecurePort,
+        securePort: settings.securePort
+      };
+    },
+    async ping(signal) {
+      const response = await request(settings, "GET", "/", { signal });
+      return expectJson(response, "ping");
+    },
+    async getNote(notePath, signal) {
+      const response = await request(settings, "GET", `/vault/${encodePath(notePath)}`, {
+        headers: { accept: "application/vnd.olrapi.note+json" },
+        signal
+      });
+      return expectJson(response, "get note");
+    },
+    async getDocumentMap(notePath, signal) {
+      const response = await request(settings, "GET", `/vault/${encodePath(notePath)}`, {
+        headers: { accept: "application/vnd.olrapi.document-map+json" },
+        signal
+      });
+      return expectJson(response, "get document map");
+    },
+    async writeNote(notePath, content, signal) {
+      const response = await request(settings, "PUT", `/vault/${encodePath(notePath)}`, {
+        headers: { "content-type": "text/markdown" },
+        body: content,
+        signal
+      });
+      if (response.status < 200 || response.status >= 300) throw responseError(response, "write note");
+      return { ok: true, path: normalizeNotePath(notePath) };
+    },
+    async patchFrontmatter(notePath, key, value, signal) {
+      if (typeof key !== "string" || !key.trim()) throw new RestError("key is required", 400);
+      const normalized = normalizeNotePath(notePath);
+      return enqueueWrite(`${vault}\0${normalized}`, async () => {
+        let lastError = null;
+        for (let attempt = 0; attempt < PATCH_ATTEMPTS; attempt += 1) {
+          const map = await client.getDocumentMap(normalized, signal);
+          const response = await request(settings, "PATCH", `/vault/${encodePath(normalized)}`, {
+            headers: {
+              "content-type": "application/json",
+              ...typeof map?.version === "string" && map.version ? { "if-match": map.version } : {}
+            },
+            body: JSON.stringify({
+              operation: "replace",
+              targetType: "frontmatter",
+              target: key,
+              value,
+              createTargetIfMissing: true
+            }),
+            signal
+          });
+          if (response.status === 412) {
+            lastError = responseError(response, "patch frontmatter");
+            continue;
+          }
+          if (response.status < 200 || response.status >= 300) throw responseError(response, "patch frontmatter");
+          return { ok: true, path: normalized, key, value, attempts: attempt + 1 };
+        }
+        throw lastError ?? new RestError("Obsidian REST patch kept conflicting", 409);
+      });
+    },
+    async appendHeading(notePath, heading, content, signal) {
+      const normalized = normalizeNotePath(notePath);
+      let target;
+      if (Array.isArray(heading)) {
+        target = heading.map((part) => String(part).trim()).filter(Boolean);
+      } else {
+        const raw = String(heading ?? "").trim();
+        if (raw.includes("::")) {
+          target = raw.split("::").map((part) => part.trim()).filter(Boolean);
+        } else {
+          const note = await client.getNote(normalized, signal).catch(() => null);
+          target = note?.content ? resolveHeadingPath(note.content, raw) : raw ? [raw] : [];
+        }
+      }
+      if (target.length === 0) throw new RestError("heading is required", 400);
+      if (typeof content !== "string" || !content) throw new RestError("content is required", 400);
+      return enqueueWrite(`${vault}\0${normalized}`, async () => {
+        let lastError = null;
+        for (let attempt = 0; attempt < PATCH_ATTEMPTS; attempt += 1) {
+          const map = await client.getDocumentMap(normalized, signal);
+          const response = await request(settings, "PATCH", `/vault/${encodePath(normalized)}`, {
+            headers: {
+              "content-type": "application/json",
+              ...typeof map?.version === "string" && map.version ? { "if-match": map.version } : {}
+            },
+            body: JSON.stringify({
+              operation: "append",
+              targetType: "heading",
+              target,
+              content,
+              createTargetIfMissing: true
+            }),
+            signal
+          });
+          if (response.status === 412) {
+            lastError = responseError(response, "append heading");
+            continue;
+          }
+          if (response.status < 200 || response.status >= 300) throw responseError(response, "append heading");
+          return { ok: true, path: normalized, heading: target, attempts: attempt + 1 };
+        }
+        throw lastError ?? new RestError("Obsidian REST append kept conflicting", 409);
+      });
+    },
+    async openNote(notePath, newLeaf = true, signal) {
+      const normalized = normalizeNotePath(notePath);
+      const query = newLeaf ? "?newLeaf=true" : "";
+      const response = await request(settings, "POST", `/open/${encodePath(normalized)}${query}`, { signal });
+      if (response.status < 200 || response.status >= 300) throw responseError(response, "open note");
+      return { ok: true, path: normalized, newLeaf: Boolean(newLeaf) };
+    },
+    async searchJsonLogic(logic, signal) {
+      const response = await request(settings, "POST", "/search/", {
+        headers: { "content-type": "application/vnd.olrapi.jsonlogic+json" },
+        body: JSON.stringify(logic),
+        signal
+      });
+      return expectJson(response, "search");
+    },
+    async listMarkdown(folder = "", recursive = true) {
+      const root = path2.resolve(vault);
+      const start = folder ? path2.resolve(root, folder) : root;
+      if (start !== root && !start.startsWith(root + path2.sep)) throw new RestError("folder escapes the vault", 400);
+      const files = [];
+      const walk = (dir, depth) => {
+        let entries;
+        try {
+          entries = readdirSync(dir, { withFileTypes: true });
+        } catch {
+          return;
+        }
+        for (const entry of entries) {
+          if (entry.name.startsWith(".")) continue;
+          const full = path2.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            if (recursive && depth < 12) walk(full, depth + 1);
+            continue;
+          }
+          if (!entry.name.toLowerCase().endsWith(".md")) continue;
+          let stat = null;
+          try {
+            stat = statSync2(full);
+          } catch {
+          }
+          files.push({
+            path: path2.relative(root, full).split(path2.sep).join("/"),
+            name: entry.name.replace(/\.md$/i, ""),
+            size: stat?.size ?? 0,
+            mtime: stat?.mtimeMs ?? 0
+          });
+        }
+      };
+      walk(start, 0);
+      files.sort((left, right) => right.mtime - left.mtime);
+      return files;
+    }
+  };
+  return client;
+};
+var outlineMarkdown = (content) => {
+  const lines = String(content ?? "").split(/\r?\n/);
+  const headings = [];
+  let inFence = false;
+  let fence = "";
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    const fenceMatch = /^\s*(```+|~~~+)/.exec(line);
+    if (fenceMatch) {
+      if (!inFence) {
+        inFence = true;
+        fence = fenceMatch[1][0];
+      } else if (fenceMatch[1][0] === fence) {
+        inFence = false;
+        fence = "";
+      }
+      continue;
+    }
+    if (inFence) continue;
+    const match = /^(#{1,6})\s+(.*?)\s*#*\s*$/.exec(line);
+    if (!match) continue;
+    headings.push({
+      level: match[1].length,
+      title: match[2].trim(),
+      line: index + 1
+    });
+  }
+  return headings.map((heading, index) => {
+    const next = headings.slice(index + 1).find((candidate) => candidate.level <= heading.level);
+    const endLine = next ? next.line - 1 : lines.length;
+    const body = lines.slice(heading.line, endLine).join("\n").trim();
+    return {
+      ...heading,
+      endLine,
+      chars: body.length,
+      tokens: Math.ceil(body.length / 4),
+      content: body
+    };
+  });
+};
+var sectionMarkdown = (content, headingPath) => {
+  const parts = Array.isArray(headingPath) ? headingPath.map((part) => String(part).trim()).filter(Boolean) : String(headingPath ?? "").split("::").map((part) => part.trim()).filter(Boolean);
+  if (parts.length === 0) return null;
+  const headings = outlineMarkdown(content);
+  let parentLevel = 0;
+  let parentEnd = Number.MAX_SAFE_INTEGER;
+  let found = null;
+  for (const part of parts) {
+    found = headings.find((heading) => heading.title === part && heading.level > parentLevel && heading.line <= parentEnd) ?? null;
+    if (!found) return null;
+    parentLevel = found.level;
+    parentEnd = found.endLine;
+  }
+  return found;
+};
+var resolveHeadingPath = (content, title) => {
+  const wanted = String(title ?? "").trim();
+  if (!wanted) return [];
+  const headings = outlineMarkdown(content);
+  const stack = [];
+  for (const heading of headings) {
+    while (stack.length > 0 && stack[stack.length - 1].level >= heading.level) stack.pop();
+    stack.push({ level: heading.level, title: heading.title });
+    if (heading.title === wanted) return stack.map((entry) => entry.title);
+  }
+  return [wanted];
+};
+var restErrorStatus = (error) => error instanceof RestError ? error.status : 500;
+var restErrorMessage = (error) => {
+  if (error instanceof Error && error.message.trim()) return error.message;
+  return "Unknown Obsidian REST error";
+};
+
+// src/service.js
 var BODY_MAX_BYTES = 2 * 1024 * 1024;
 var json = (response, status, body) => {
   const bytes = Buffer.from(JSON.stringify(body));
@@ -5020,28 +5418,28 @@ var text = (response, status, body) => {
   response.writeHead(status, { "content-type": "text/plain; charset=utf-8" });
   response.end(body);
 };
-var authorized = (request, token) => {
-  const header = request.headers.authorization;
+var authorized = (request2, token) => {
+  const header = request2.headers.authorization;
   if (typeof header !== "string" || !header.startsWith("Bearer ")) return false;
   const provided = Buffer.from(header.slice(7));
   const expected = Buffer.from(token);
   return provided.length === expected.length && crypto2.timingSafeEqual(provided, expected);
 };
-var readBody = async (request) => {
-  const contentLength = Number(request.headers["content-length"] ?? 0);
+var readBody = async (request2) => {
+  const contentLength = Number(request2.headers["content-length"] ?? 0);
   if (Number.isFinite(contentLength) && contentLength > BODY_MAX_BYTES) throw new Error("Request body too large");
   const chunks = [];
   let length = 0;
-  for await (const chunk of request) {
+  for await (const chunk of request2) {
     length += chunk.length;
     if (length > BODY_MAX_BYTES) throw new Error("Request body too large");
     chunks.push(chunk);
   }
   return Buffer.concat(chunks, length).toString("utf8");
 };
-var readObjectBody = async (request) => {
+var readObjectBody = async (request2) => {
   try {
-    const parsed = JSON.parse(await readBody(request));
+    const parsed = JSON.parse(await readBody(request2));
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;
@@ -5071,6 +5469,17 @@ var actionStatus = (error) => {
   if (/no window to mirror|window is closed|runtime is closed/i.test(message)) return 409;
   return 500;
 };
+var restAction = async (response, action) => {
+  try {
+    return json(response, 200, await action());
+  } catch (error) {
+    return json(response, restErrorStatus(error), { ok: false, error: restErrorMessage(error) });
+  }
+};
+var stringField = (body, name, maxLength = 2048) => {
+  const value = typeof body?.[name] === "string" ? body[name].trim() : "";
+  return value.length > 0 && value.length <= maxLength ? value : "";
+};
 var createService = ({ runtime, token, port = 0 }) => {
   if (!runtime?.surfaceFrame || !runtime?.close) throw new Error("createService requires an Obsidian runtime");
   if (typeof token !== "string" || token.length === 0) throw new Error("createService requires a bearer token");
@@ -5078,18 +5487,18 @@ var createService = ({ runtime, token, port = 0 }) => {
   const activeRequests = /* @__PURE__ */ new Set();
   let listening = false;
   let closePromise = null;
-  const handle = async (request, response, signal) => {
-    if (!authorized(request, token)) return text(response, 401, "Unauthorized\n");
-    const url = new URL(request.url ?? "/", "http://127.0.0.1");
-    if (request.method === "GET" && url.pathname === "/health") return json(response, 200, { ok: true });
-    if (request.method === "GET" && url.pathname === "/obsidian/status") {
+  const handle = async (request2, response, signal) => {
+    if (!authorized(request2, token)) return text(response, 401, "Unauthorized\n");
+    const url = new URL(request2.url ?? "/", "http://127.0.0.1");
+    if (request2.method === "GET" && url.pathname === "/health") return json(response, 200, { ok: true });
+    if (request2.method === "GET" && url.pathname === "/obsidian/status") {
       return json(response, 200, await runtime.status());
     }
-    if (request.method === "GET" && url.pathname === "/obsidian/targets") {
+    if (request2.method === "GET" && url.pathname === "/obsidian/targets") {
       return json(response, 200, { targets: await runtime.targets() });
     }
-    if (request.method === "POST" && url.pathname === "/obsidian/select") {
-      const body = await readObjectBody(request);
+    if (request2.method === "POST" && url.pathname === "/obsidian/select") {
+      const body = await readObjectBody(request2);
       const targetId = typeof body?.targetId === "string" && body.targetId.length > 0 && body.targetId.length <= 128 ? body.targetId : null;
       if (!targetId) return text(response, 400, "targetId is required\n");
       try {
@@ -5099,8 +5508,8 @@ var createService = ({ runtime, token, port = 0 }) => {
       }
     }
     if (url.pathname === "/obsidian/pick") {
-      if (request.method === "GET") return json(response, 200, runtime.pick());
-      if (request.method === "POST") {
+      if (request2.method === "GET") return json(response, 200, runtime.pick());
+      if (request2.method === "POST") {
         try {
           return json(response, 200, runtime.pickFolder());
         } catch (error) {
@@ -5108,8 +5517,8 @@ var createService = ({ runtime, token, port = 0 }) => {
         }
       }
     }
-    if (request.method === "POST" && url.pathname === "/obsidian/open") {
-      const body = await readObjectBody(request);
+    if (request2.method === "POST" && url.pathname === "/obsidian/open") {
+      const body = await readObjectBody(request2);
       const vaultPath = typeof body?.path === "string" ? body.path.trim().slice(0, 1024) : "";
       if (!vaultPath) return text(response, 400, "path is required\n");
       try {
@@ -5118,7 +5527,7 @@ var createService = ({ runtime, token, port = 0 }) => {
         return json(response, actionStatus(error), { ok: false, error: errorMessage(error) });
       }
     }
-    const action = request.method === "POST" ? /^\/obsidian\/(launch|restart|show|minimize)$/.exec(url.pathname)?.[1] : null;
+    const action = request2.method === "POST" ? /^\/obsidian\/(launch|restart|show|minimize)$/.exec(url.pathname)?.[1] : null;
     if (action) {
       try {
         return json(response, 200, await runtime[action]());
@@ -5126,7 +5535,7 @@ var createService = ({ runtime, token, port = 0 }) => {
         return json(response, actionStatus(error), { ok: false, error: errorMessage(error) });
       }
     }
-    if (request.method === "GET" && url.pathname === SURFACE_FRAME_PATH) {
+    if (request2.method === "GET" && url.pathname === SURFACE_FRAME_PATH) {
       const after = queryInteger(url, "after", 0, Number.MAX_SAFE_INTEGER);
       const wait = queryInteger(url, "wait", 0, SURFACE_FRAME_WAIT_MS);
       if (after === null || wait === null) return text(response, 400, "Invalid frame query\n");
@@ -5152,8 +5561,8 @@ var createService = ({ runtime, token, port = 0 }) => {
         return json(response, 503, { ok: false, error: errorMessage(error) });
       }
     }
-    if (request.method === "POST" && url.pathname === SURFACE_INPUT_PATH) {
-      const parsed = readSurfaceInputBatch(await readBody(request));
+    if (request2.method === "POST" && url.pathname === SURFACE_INPUT_PATH) {
+      const parsed = readSurfaceInputBatch(await readBody(request2));
       if (!parsed) return text(response, 400, "Invalid surface input batch\n");
       try {
         await runtime.surfaceInput(parsed.events, null);
@@ -5163,19 +5572,19 @@ var createService = ({ runtime, token, port = 0 }) => {
       response.writeHead(204);
       return response.end();
     }
-    if (request.method === "POST" && url.pathname === SURFACE_CONTROL_PATH) {
-      const parsed = readSurfaceControlNotice(await readBody(request));
+    if (request2.method === "POST" && url.pathname === SURFACE_CONTROL_PATH) {
+      const parsed = readSurfaceControlNotice(await readBody(request2));
       if (!parsed) return text(response, 400, "Invalid surface control notice\n");
       await runtime.surfaceControl(parsed.controller, parsed.viewer ?? null);
       response.writeHead(204);
       return response.end();
     }
-    if (request.method === "POST" && url.pathname === SURFACE_RESIZE_PATH) {
-      const parsed = readSurfaceResizeRequest(await readBody(request));
+    if (request2.method === "POST" && url.pathname === SURFACE_RESIZE_PATH) {
+      const parsed = readSurfaceResizeRequest(await readBody(request2));
       if (!parsed) return text(response, 400, "Invalid surface resize request\n");
       return json(response, 200, await runtime.surfaceResize(parsed));
     }
-    if (request.method === "GET" && url.pathname === SURFACE_CLIPBOARD_PATH) {
+    if (request2.method === "GET" && url.pathname === SURFACE_CLIPBOARD_PATH) {
       const copied = await runtime.surfaceClipboard();
       if (!copied) {
         response.writeHead(204);
@@ -5183,17 +5592,93 @@ var createService = ({ runtime, token, port = 0 }) => {
       }
       return json(response, 200, { text: copied });
     }
+    if (request2.method === "POST" && url.pathname.startsWith("/obsidian/rest/")) {
+      const body = await readObjectBody(request2);
+      const vaultPath = stringField(body, "vaultPath", 1024);
+      const notePath = stringField(body, "notePath", 2048);
+      if (!vaultPath) return text(response, 400, "vaultPath is required\n");
+      const client = () => createRestClient(vaultPath);
+      if (url.pathname === "/obsidian/rest/config") {
+        return restAction(response, async () => {
+          const rest = client();
+          const ping = await rest.ping();
+          return { ok: true, settings: rest.settings, ping };
+        });
+      }
+      if (url.pathname === "/obsidian/rest/note") {
+        if (!notePath) return text(response, 400, "notePath is required\n");
+        return restAction(response, async () => ({ ok: true, note: await client().getNote(notePath) }));
+      }
+      if (url.pathname === "/obsidian/rest/frontmatter") {
+        const key = stringField(body, "key", 200);
+        if (!notePath) return text(response, 400, "notePath is required\n");
+        if (!key) return text(response, 400, "key is required\n");
+        if (!Object.prototype.hasOwnProperty.call(body, "value")) return text(response, 400, "value is required\n");
+        return restAction(response, async () => client().patchFrontmatter(notePath, key, body.value));
+      }
+      if (url.pathname === "/obsidian/rest/append") {
+        const heading = body?.heading;
+        const content = typeof body?.content === "string" ? body.content : "";
+        if (!notePath) return text(response, 400, "notePath is required\n");
+        if (!(typeof heading === "string" || Array.isArray(heading))) return text(response, 400, "heading is required\n");
+        if (!content) return text(response, 400, "content is required\n");
+        return restAction(response, async () => client().appendHeading(notePath, heading, content));
+      }
+      if (url.pathname === "/obsidian/rest/open") {
+        if (!notePath) return text(response, 400, "notePath is required\n");
+        const newLeaf = body?.newLeaf !== false;
+        return restAction(response, async () => client().openNote(notePath, newLeaf));
+      }
+      if (url.pathname === "/obsidian/rest/search") {
+        const logic = body?.logic;
+        if (!logic || typeof logic !== "object" || Array.isArray(logic)) return text(response, 400, "logic is required\n");
+        return restAction(response, async () => ({ ok: true, results: await client().searchJsonLogic(logic) }));
+      }
+      if (url.pathname === "/obsidian/rest/list") {
+        const folder = typeof body?.folder === "string" ? body.folder.trim() : "";
+        const recursive = body?.recursive !== false;
+        return restAction(response, async () => ({
+          ok: true,
+          files: await client().listMarkdown(folder, recursive)
+        }));
+      }
+      if (url.pathname === "/obsidian/rest/outline") {
+        if (!notePath) return text(response, 400, "notePath is required\n");
+        return restAction(response, async () => {
+          const note = await client().getNote(notePath);
+          const headings = outlineMarkdown(note.content).map(({ content, ...heading }) => heading);
+          return { ok: true, path: note.path, headings };
+        });
+      }
+      if (url.pathname === "/obsidian/rest/section") {
+        if (!notePath) return text(response, 400, "notePath is required\n");
+        const heading = body?.heading;
+        if (!(typeof heading === "string" || Array.isArray(heading))) return text(response, 400, "heading is required\n");
+        return restAction(response, async () => {
+          const note = await client().getNote(notePath);
+          const section = sectionMarkdown(note.content, heading);
+          if (!section) return { ok: false, error: "That section was not found" };
+          return { ok: true, path: note.path, section };
+        });
+      }
+      if (url.pathname === "/obsidian/rest/write") {
+        if (!notePath) return text(response, 400, "notePath is required\n");
+        const content = typeof body?.content === "string" ? body.content : "";
+        return restAction(response, async () => client().writeNote(notePath, content));
+      }
+      return text(response, 404, "Not found\n");
+    }
     return text(response, 404, "Not found\n");
   };
-  const server = http.createServer((request, response) => {
+  const server = http2.createServer((request2, response) => {
     const controller = new AbortController();
     activeRequests.add(controller);
-    request.once("aborted", () => controller.abort(new DOMException("Request aborted", "AbortError")));
+    request2.once("aborted", () => controller.abort(new DOMException("Request aborted", "AbortError")));
     response.once("close", () => {
       activeRequests.delete(controller);
       if (!response.writableEnded) controller.abort(new DOMException("Client disconnected", "AbortError"));
     });
-    void handle(request, response, controller.signal).catch((error) => {
+    void handle(request2, response, controller.signal).catch((error) => {
       activeRequests.delete(controller);
       if (!response.headersSent) json(response, 500, { ok: false, error: errorMessage(error) });
       else response.destroy();
@@ -5257,7 +5742,7 @@ var startService = async ({ env = process.env } = {}) => {
   await service.listen();
   return service;
 };
-var isMain = process.argv[1] && path2.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+var isMain = process.argv[1] && path3.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   startService().then((service) => {
     let stopping = false;

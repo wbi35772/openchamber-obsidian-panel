@@ -1,6 +1,13 @@
 import crypto from 'node:crypto';
 import http from 'node:http';
 import {
+  createRestClient,
+  outlineMarkdown,
+  restErrorMessage,
+  restErrorStatus,
+  sectionMarkdown,
+} from './rest.js';
+import {
   SURFACE_AGENT_ACTIVE_HEADER,
   SURFACE_CLIPBOARD_PATH,
   SURFACE_CONTROL_PATH,
@@ -90,6 +97,19 @@ const actionStatus = (error) => {
   if (/without a debug port/i.test(message)) return 409;
   if (/no window to mirror|window is closed|runtime is closed/i.test(message)) return 409;
   return 500;
+};
+
+const restAction = async (response, action) => {
+  try {
+    return json(response, 200, await action());
+  } catch (error) {
+    return json(response, restErrorStatus(error), { ok: false, error: restErrorMessage(error) });
+  }
+};
+
+const stringField = (body, name, maxLength = 2048) => {
+  const value = typeof body?.[name] === 'string' ? body[name].trim() : '';
+  return value.length > 0 && value.length <= maxLength ? value : '';
 };
 
 export const createService = ({ runtime, token, port = 0 }) => {
@@ -219,6 +239,94 @@ export const createService = ({ runtime, token, port = 0 }) => {
         return response.end();
       }
       return json(response, 200, { text: copied });
+    }
+
+    if (request.method === 'POST' && url.pathname.startsWith('/obsidian/rest/')) {
+      const body = await readObjectBody(request);
+      const vaultPath = stringField(body, 'vaultPath', 1024);
+      const notePath = stringField(body, 'notePath', 2048);
+      if (!vaultPath) return text(response, 400, 'vaultPath is required\n');
+      const client = () => createRestClient(vaultPath);
+
+      if (url.pathname === '/obsidian/rest/config') {
+        return restAction(response, async () => {
+          const rest = client();
+          const ping = await rest.ping();
+          return { ok: true, settings: rest.settings, ping };
+        });
+      }
+
+      if (url.pathname === '/obsidian/rest/note') {
+        if (!notePath) return text(response, 400, 'notePath is required\n');
+        return restAction(response, async () => ({ ok: true, note: await client().getNote(notePath) }));
+      }
+
+      if (url.pathname === '/obsidian/rest/frontmatter') {
+        const key = stringField(body, 'key', 200);
+        if (!notePath) return text(response, 400, 'notePath is required\n');
+        if (!key) return text(response, 400, 'key is required\n');
+        if (!Object.prototype.hasOwnProperty.call(body, 'value')) return text(response, 400, 'value is required\n');
+        return restAction(response, async () => client().patchFrontmatter(notePath, key, body.value));
+      }
+
+      if (url.pathname === '/obsidian/rest/append') {
+        const heading = body?.heading;
+        const content = typeof body?.content === 'string' ? body.content : '';
+        if (!notePath) return text(response, 400, 'notePath is required\n');
+        if (!(typeof heading === 'string' || Array.isArray(heading))) return text(response, 400, 'heading is required\n');
+        if (!content) return text(response, 400, 'content is required\n');
+        return restAction(response, async () => client().appendHeading(notePath, heading, content));
+      }
+
+      if (url.pathname === '/obsidian/rest/open') {
+        if (!notePath) return text(response, 400, 'notePath is required\n');
+        const newLeaf = body?.newLeaf !== false;
+        return restAction(response, async () => client().openNote(notePath, newLeaf));
+      }
+
+      if (url.pathname === '/obsidian/rest/search') {
+        const logic = body?.logic;
+        if (!logic || typeof logic !== 'object' || Array.isArray(logic)) return text(response, 400, 'logic is required\n');
+        return restAction(response, async () => ({ ok: true, results: await client().searchJsonLogic(logic) }));
+      }
+
+      if (url.pathname === '/obsidian/rest/list') {
+        const folder = typeof body?.folder === 'string' ? body.folder.trim() : '';
+        const recursive = body?.recursive !== false;
+        return restAction(response, async () => ({
+          ok: true,
+          files: await client().listMarkdown(folder, recursive),
+        }));
+      }
+
+      if (url.pathname === '/obsidian/rest/outline') {
+        if (!notePath) return text(response, 400, 'notePath is required\n');
+        return restAction(response, async () => {
+          const note = await client().getNote(notePath);
+          const headings = outlineMarkdown(note.content).map(({ content, ...heading }) => heading);
+          return { ok: true, path: note.path, headings };
+        });
+      }
+
+      if (url.pathname === '/obsidian/rest/section') {
+        if (!notePath) return text(response, 400, 'notePath is required\n');
+        const heading = body?.heading;
+        if (!(typeof heading === 'string' || Array.isArray(heading))) return text(response, 400, 'heading is required\n');
+        return restAction(response, async () => {
+          const note = await client().getNote(notePath);
+          const section = sectionMarkdown(note.content, heading);
+          if (!section) return { ok: false, error: 'That section was not found' };
+          return { ok: true, path: note.path, section };
+        });
+      }
+
+      if (url.pathname === '/obsidian/rest/write') {
+        if (!notePath) return text(response, 400, 'notePath is required\n');
+        const content = typeof body?.content === 'string' ? body.content : '';
+        return restAction(response, async () => client().writeNote(notePath, content));
+      }
+
+      return text(response, 404, 'Not found\n');
     }
 
     return text(response, 404, 'Not found\n');
