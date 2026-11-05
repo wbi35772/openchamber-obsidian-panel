@@ -14,12 +14,15 @@
       #app { display: flex; flex-direction: column; height: 100%; }
 
       #layout-bar {
-        flex: 0 0 26px; display: flex; align-items: center; gap: 4px;
+        flex: 0 0 30px; display: flex; align-items: center; gap: 4px;
         padding: 0 6px; border-bottom: 1px solid var(--oc-border, rgba(127,127,127,.25));
         font-size: 11px; color: var(--oc-muted, rgba(127,127,127,.9));
       }
       #layout-bar .brand { font-weight: 600; color: var(--oc-fg, inherit); white-space: nowrap; }
       #layout-bar .grow { flex: 1; }
+      #layout-bar .layout-label { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+      .boot-error { max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #f85149; }
+      .boot-error[hidden] { display: none; }
       .seg {
         height: 20px; padding: 0 7px; border: 1px solid var(--oc-border, rgba(127,127,127,.35));
         border-radius: 5px; background: transparent; cursor: pointer; font-size: 11px;
@@ -170,10 +173,11 @@
     <div id="app">
       <div id="layout-bar">
         <span class="brand">Workspace</span>
+        <span id="boot-error" class="boot-error" hidden></span>
         <span class="grow"></span>
-        <button id="layout-column" class="seg" type="button" title="Stack Brain above Obsidian" aria-pressed="true">Stacked</button>
-        <button id="layout-row" class="seg" type="button" title="Place Brain beside Obsidian" aria-pressed="false">Side by side</button>
-        <button id="layout-swap" class="seg" type="button" title="Swap the two panes" aria-pressed="false">Swap</button>
+        <span class="layout-label">Layout</span>
+        <button id="layout-column" class="seg" type="button" title="Brain above Obsidian" aria-pressed="true">⇅ Stacked</button>
+        <button id="layout-row" class="seg" type="button" title="Brain beside Obsidian" aria-pressed="false">⇄ Side by side</button>
       </div>
       <div id="split" data-direction="column">
         <section id="brain-pane" aria-label="Brain">

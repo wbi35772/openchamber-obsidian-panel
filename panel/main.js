@@ -1785,6 +1785,12 @@ ${GUEST_UI_LOOK_CSS}`;
       actions: root.querySelector("#actions"),
       foot: root.querySelector("#foot")
     };
+    const missing = Object.entries(nodes).filter(([, node]) => !node).map(([name]) => name);
+    if (missing.length) {
+      const fallback = nodes.list || root;
+      fallback.textContent = `Brain pane markup is missing: ${missing.join(", ")}`;
+      return;
+    }
     const state = {
       vaultPath: "D:\\brain",
       baseFolder: "20-\u7B14\u8BB0/\u9879\u76EE",
@@ -1801,6 +1807,8 @@ ${GUEST_UI_LOOK_CSS}`;
       tasks: [],
       selectedPath: "",
       busy: false,
+      refreshing: false,
+      rerun: false,
       ready: false,
       error: null,
       activity: "\u5C31\u7EEA\u3002"
@@ -1988,8 +1996,12 @@ ${GUEST_UI_LOOK_CSS}`;
       }
     };
     const refresh2 = async () => {
-      if (state.busy || !state.ready) return;
-      state.busy = true;
+      if (!state.ready) return;
+      if (state.refreshing) {
+        state.rerun = true;
+        return;
+      }
+      state.refreshing = true;
       state.error = null;
       render2();
       try {
@@ -2001,8 +2013,12 @@ ${GUEST_UI_LOOK_CSS}`;
       } catch (error) {
         state.error = messageOf2(error);
       } finally {
-        state.busy = false;
+        state.refreshing = false;
         render2();
+        if (state.rerun) {
+          state.rerun = false;
+          void refresh2();
+        }
       }
     };
     const bindProject = async () => {
@@ -2132,7 +2148,7 @@ ${GUEST_UI_LOOK_CSS}`;
       nodes.error.hidden = !state.error;
       nodes.error.textContent = state.error || "";
       nodes.refresh.disabled = state.busy;
-      nodes.refresh.classList.toggle("spin", state.busy);
+      nodes.refresh.classList.toggle("spin", state.busy || state.refreshing);
       renderProjects();
       renderList();
       renderActions();
@@ -2264,7 +2280,7 @@ ${GUEST_UI_LOOK_CSS}`;
     nodes.project.addEventListener("change", () => selectProject(nodes.project.value));
     nodes.list.addEventListener("click", (event) => {
       const row = event.target.closest(".row");
-      if (!row?.dataset.path || state.busy) return;
+      if (!row?.dataset.path) return;
       state.selectedPath = row.dataset.path === state.selectedPath ? "" : row.dataset.path;
       render2();
     });
@@ -2312,7 +2328,6 @@ ${GUEST_UI_LOOK_CSS}`;
   var divider = document.querySelector("#divider");
   var layoutColumn = document.querySelector("#layout-column");
   var layoutRow = document.querySelector("#layout-row");
-  var layoutSwap = document.querySelector("#layout-swap");
   var screen = document.querySelector("#screen");
   var screenWrap = document.querySelector("#screen-wrap");
   var screenOverlay = document.querySelector("#screen-overlay");
@@ -2320,6 +2335,17 @@ ${GUEST_UI_LOOK_CSS}`;
   var screenRetry = document.querySelector("#screen-retry");
   var screenLaunch = document.querySelector("#screen-launch");
   var keySink = document.querySelector("#key-sink");
+  var bootError = document.querySelector("#boot-error");
+  var reportBootError = (error) => {
+    const message = error instanceof Error ? error.message : String(error || "Unknown panel error");
+    console.error("Panel init failed:", error);
+    if (!bootError) return;
+    bootError.hidden = false;
+    bootError.textContent = message;
+    bootError.title = message;
+  };
+  window.addEventListener("error", (event) => reportBootError(event.error || event.message));
+  window.addEventListener("unhandledrejection", (event) => reportBootError(event.reason));
   var view = {
     status: null,
     error: null,
@@ -2360,6 +2386,7 @@ ${GUEST_UI_LOOK_CSS}`;
   };
   var renderLayout = () => {
     split.dataset.direction = layout.direction;
+    split.style.flexDirection = layout.direction;
     brainPane.style.order = layout.swapped ? "3" : "1";
     divider.style.order = "2";
     obsidianPane.style.order = layout.swapped ? "1" : "3";
@@ -2367,21 +2394,19 @@ ${GUEST_UI_LOOK_CSS}`;
     divider.setAttribute("aria-orientation", layout.direction === "row" ? "vertical" : "horizontal");
     layoutColumn.setAttribute("aria-pressed", String(layout.direction === "column"));
     layoutRow.setAttribute("aria-pressed", String(layout.direction === "row"));
-    layoutSwap.setAttribute("aria-pressed", String(layout.swapped));
   };
   var saveLayout = async () => {
     try {
-      await host.storage.set("layout", { ...layout });
+      await host.storage.set("panel-layout", { ...layout });
     } catch {
     }
   };
   var loadLayout = async () => {
     try {
-      const saved = await host.storage.get("layout");
+      const saved = await host.storage.get("panel-layout");
       if (saved && typeof saved === "object" && !Array.isArray(saved)) {
         if (saved.direction === "row" || saved.direction === "column") layout.direction = saved.direction;
         if (Number.isFinite(saved.ratio)) layout.ratio = Math.min(0.85, Math.max(0.15, saved.ratio));
-        layout.swapped = saved.swapped === true;
       }
     } catch {
     }
@@ -2397,11 +2422,6 @@ ${GUEST_UI_LOOK_CSS}`;
   };
   layoutColumn.addEventListener("click", () => setDirection("column"));
   layoutRow.addEventListener("click", () => setDirection("row"));
-  layoutSwap.addEventListener("click", () => {
-    layout.swapped = !layout.swapped;
-    renderLayout();
-    void saveLayout();
-  });
   var dragState = null;
   divider.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
@@ -2489,7 +2509,7 @@ ${GUEST_UI_LOOK_CSS}`;
       tab.textContent = vaultLabel(target);
       return tab;
     }));
-    vaults.hidden = items.length < 2;
+    vaults.hidden = items.length < 1;
     const selected = vaults.querySelector('[aria-selected="true"]');
     if (selected) selected.scrollIntoView({ block: "nearest", inline: "nearest" });
   };
@@ -2998,7 +3018,11 @@ ${GUEST_UI_LOOK_CSS}`;
   });
   screenRetry.addEventListener("click", () => retryFrames());
   screenLaunch.addEventListener("click", () => void run("launch"));
-  createBrainPane(host, document.querySelector("#brain-pane"));
+  try {
+    createBrainPane(host, document.querySelector("#brain-pane"));
+  } catch (error) {
+    reportBootError(error);
+  }
   renderLayout();
   var started = false;
   host.onReady((context) => {

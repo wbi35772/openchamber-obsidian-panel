@@ -11,6 +11,13 @@ const nodes = {
   foot: root.querySelector('#foot'),
 };
 
+const missing = Object.entries(nodes).filter(([, node]) => !node).map(([name]) => name);
+if (missing.length) {
+  const fallback = nodes.list || root;
+  fallback.textContent = `Brain pane markup is missing: ${missing.join(', ')}`;
+  return;
+}
+
 const state = {
   vaultPath: 'D:\\brain',
   baseFolder: '20-笔记/项目',
@@ -27,6 +34,8 @@ const state = {
   tasks: [],
   selectedPath: '',
   busy: false,
+  refreshing: false,
+  rerun: false,
   ready: false,
   error: null,
   activity: '就绪。',
@@ -239,8 +248,12 @@ const loadSessions = async () => {
 };
 
 const refresh = async () => {
-  if (state.busy || !state.ready) return;
-  state.busy = true;
+  if (!state.ready) return;
+  if (state.refreshing) {
+    state.rerun = true;
+    return;
+  }
+  state.refreshing = true;
   state.error = null;
   render();
   try {
@@ -254,8 +267,12 @@ const refresh = async () => {
   } catch (error) {
     state.error = messageOf(error);
   } finally {
-    state.busy = false;
+    state.refreshing = false;
     render();
+    if (state.rerun) {
+      state.rerun = false;
+      void refresh();
+    }
   }
 };
 
@@ -397,7 +414,7 @@ const render = () => {
   nodes.error.hidden = !state.error;
   nodes.error.textContent = state.error || '';
   nodes.refresh.disabled = state.busy;
-  nodes.refresh.classList.toggle('spin', state.busy);
+  nodes.refresh.classList.toggle('spin', state.busy || state.refreshing);
   renderProjects();
   renderList();
   renderActions();
@@ -536,7 +553,7 @@ nodes.project.addEventListener('change', () => selectProject(nodes.project.value
 
 nodes.list.addEventListener('click', (event) => {
   const row = event.target.closest('.row');
-  if (!row?.dataset.path || state.busy) return;
+  if (!row?.dataset.path) return;
   state.selectedPath = row.dataset.path === state.selectedPath ? '' : row.dataset.path;
   render();
 });

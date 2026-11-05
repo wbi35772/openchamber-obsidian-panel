@@ -23,7 +23,6 @@ const obsidianPane = document.querySelector('#obsidian-pane');
 const divider = document.querySelector('#divider');
 const layoutColumn = document.querySelector('#layout-column');
 const layoutRow = document.querySelector('#layout-row');
-const layoutSwap = document.querySelector('#layout-swap');
 
 const screen = document.querySelector('#screen');
 const screenWrap = document.querySelector('#screen-wrap');
@@ -32,6 +31,18 @@ const screenMessage = document.querySelector('#screen-message');
 const screenRetry = document.querySelector('#screen-retry');
 const screenLaunch = document.querySelector('#screen-launch');
 const keySink = document.querySelector('#key-sink');
+
+const bootError = document.querySelector('#boot-error');
+const reportBootError = (error) => {
+  const message = error instanceof Error ? error.message : String(error || 'Unknown panel error');
+  console.error('Panel init failed:', error);
+  if (!bootError) return;
+  bootError.hidden = false;
+  bootError.textContent = message;
+  bootError.title = message;
+};
+window.addEventListener('error', (event) => reportBootError(event.error || event.message));
+window.addEventListener('unhandledrejection', (event) => reportBootError(event.reason));
 
 const view = {
   status: null,
@@ -79,6 +90,7 @@ const api = async (method, path, body) => {
 
 const renderLayout = () => {
   split.dataset.direction = layout.direction;
+  split.style.flexDirection = layout.direction;
   brainPane.style.order = layout.swapped ? '3' : '1';
   divider.style.order = '2';
   obsidianPane.style.order = layout.swapped ? '1' : '3';
@@ -86,22 +98,20 @@ const renderLayout = () => {
   divider.setAttribute('aria-orientation', layout.direction === 'row' ? 'vertical' : 'horizontal');
   layoutColumn.setAttribute('aria-pressed', String(layout.direction === 'column'));
   layoutRow.setAttribute('aria-pressed', String(layout.direction === 'row'));
-  layoutSwap.setAttribute('aria-pressed', String(layout.swapped));
 };
 
 const saveLayout = async () => {
   try {
-    await host.storage.set('layout', { ...layout });
+    await host.storage.set('panel-layout', { ...layout });
   } catch {}
 };
 
 const loadLayout = async () => {
   try {
-    const saved = await host.storage.get('layout');
+    const saved = await host.storage.get('panel-layout');
     if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
       if (saved.direction === 'row' || saved.direction === 'column') layout.direction = saved.direction;
       if (Number.isFinite(saved.ratio)) layout.ratio = Math.min(0.85, Math.max(0.15, saved.ratio));
-      layout.swapped = saved.swapped === true;
     }
   } catch {}
   renderLayout();
@@ -118,11 +128,6 @@ const setDirection = (direction) => {
 
 layoutColumn.addEventListener('click', () => setDirection('column'));
 layoutRow.addEventListener('click', () => setDirection('row'));
-layoutSwap.addEventListener('click', () => {
-  layout.swapped = !layout.swapped;
-  renderLayout();
-  void saveLayout();
-});
 
 let dragState = null;
 
@@ -226,7 +231,7 @@ const renderVaults = (targets) => {
     tab.textContent = vaultLabel(target);
     return tab;
   }));
-  vaults.hidden = items.length < 2;
+  vaults.hidden = items.length < 1;
   const selected = vaults.querySelector('[aria-selected="true"]');
   if (selected) selected.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 };
@@ -773,7 +778,11 @@ keySink.addEventListener('paste', (event) => {
 screenRetry.addEventListener('click', () => retryFrames());
 screenLaunch.addEventListener('click', () => void run('launch'));
 
-createBrainPane(host, document.querySelector('#brain-pane'));
+try {
+  createBrainPane(host, document.querySelector('#brain-pane'));
+} catch (error) {
+  reportBootError(error);
+}
 renderLayout();
 
 let started = false;

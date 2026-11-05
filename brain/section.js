@@ -1785,6 +1785,12 @@ ${GUEST_UI_LOOK_CSS}`;
       actions: root.querySelector("#actions"),
       foot: root.querySelector("#foot")
     };
+    const missing = Object.entries(nodes).filter(([, node]) => !node).map(([name]) => name);
+    if (missing.length) {
+      const fallback = nodes.list || root;
+      fallback.textContent = `Brain pane markup is missing: ${missing.join(", ")}`;
+      return;
+    }
     const state = {
       vaultPath: "D:\\brain",
       baseFolder: "20-\u7B14\u8BB0/\u9879\u76EE",
@@ -1801,6 +1807,8 @@ ${GUEST_UI_LOOK_CSS}`;
       tasks: [],
       selectedPath: "",
       busy: false,
+      refreshing: false,
+      rerun: false,
       ready: false,
       error: null,
       activity: "\u5C31\u7EEA\u3002"
@@ -1988,8 +1996,12 @@ ${GUEST_UI_LOOK_CSS}`;
       }
     };
     const refresh = async () => {
-      if (state.busy || !state.ready) return;
-      state.busy = true;
+      if (!state.ready) return;
+      if (state.refreshing) {
+        state.rerun = true;
+        return;
+      }
+      state.refreshing = true;
       state.error = null;
       render();
       try {
@@ -2001,8 +2013,12 @@ ${GUEST_UI_LOOK_CSS}`;
       } catch (error) {
         state.error = messageOf(error);
       } finally {
-        state.busy = false;
+        state.refreshing = false;
         render();
+        if (state.rerun) {
+          state.rerun = false;
+          void refresh();
+        }
       }
     };
     const bindProject = async () => {
@@ -2132,7 +2148,7 @@ ${GUEST_UI_LOOK_CSS}`;
       nodes.error.hidden = !state.error;
       nodes.error.textContent = state.error || "";
       nodes.refresh.disabled = state.busy;
-      nodes.refresh.classList.toggle("spin", state.busy);
+      nodes.refresh.classList.toggle("spin", state.busy || state.refreshing);
       renderProjects();
       renderList();
       renderActions();
@@ -2264,7 +2280,7 @@ ${GUEST_UI_LOOK_CSS}`;
     nodes.project.addEventListener("change", () => selectProject(nodes.project.value));
     nodes.list.addEventListener("click", (event) => {
       const row = event.target.closest(".row");
-      if (!row?.dataset.path || state.busy) return;
+      if (!row?.dataset.path) return;
       state.selectedPath = row.dataset.path === state.selectedPath ? "" : row.dataset.path;
       render();
     });
