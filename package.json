@@ -19,6 +19,10 @@
         "dock": "top",
         "size": 104
       },
+      "page": {
+        "entry": "brain/index.html",
+        "title": "Brain"
+      },
       "service": {
         "entry": "service/main.js",
         "runtime": "host",

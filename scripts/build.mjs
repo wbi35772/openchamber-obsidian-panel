@@ -3,6 +3,7 @@ import { mkdir } from 'node:fs/promises';
 
 await mkdir('service', { recursive: true });
 await mkdir('panel', { recursive: true });
+await mkdir('brain', { recursive: true });
 
 await Promise.all([
   build({
@@ -21,6 +22,16 @@ await Promise.all([
   build({
     entryPoints: ['src/panel.js'],
     outfile: 'panel/main.js',
+    bundle: true,
+    platform: 'browser',
+    format: 'iife',
+    target: 'es2022',
+    sourcemap: false,
+    legalComments: 'eof',
+  }),
+  build({
+    entryPoints: ['src/brain.js'],
+    outfile: 'brain/main.js',
     bundle: true,
     platform: 'browser',
     format: 'iife',

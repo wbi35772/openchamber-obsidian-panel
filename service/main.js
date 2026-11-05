@@ -5786,6 +5786,7 @@ updated_at: ${yamlString(stamp)}
           const markdown = `---
 type: AgentTask
 task_id: ${yamlString(taskId)}
+title: ${yamlString(title)}
 project: ${yamlString(project)}
 status: todo
 priority: ${priority}

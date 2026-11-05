@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Brain</title>
+    <style>
+      :root { color-scheme: light dark; }
+      * { box-sizing: border-box; }
+      html, body, #app { width: 100%; height: 100%; margin: 0; }
+      body {
+        overflow: hidden;
+        background: var(--oc-bg, Canvas);
+        color: var(--oc-fg, CanvasText);
+        font-family: var(--oc-font, ui-sans-serif, system-ui, sans-serif);
+        font-size: 13px;
+      }
+      #app { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; grid-template-areas: "header" "error" "main" "footer"; }
+      header { grid-area: header; }
+      #error { grid-area: error; }
+      main { grid-area: main; }
+      footer { grid-area: footer; }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--oc-border, rgba(127,127,127,.35));
+      }
+      .brand { display: flex; flex-direction: column; gap: 1px; margin-right: 6px; }
+      .brand strong { font-size: 15px; letter-spacing: .2px; }
+      .brand span { font-size: 10px; color: var(--oc-muted, rgba(127,127,127,.9)); text-transform: uppercase; letter-spacing: .8px; }
+      .field-inline { display: flex; align-items: center; gap: 6px; min-width: 0; }
+      .field-inline label { font-size: 11px; color: var(--oc-muted, rgba(127,127,127,.9)); white-space: nowrap; }
+      input, textarea, select {
+        border: 1px solid var(--oc-border, rgba(127,127,127,.35));
+        border-radius: var(--oc-radius, 6px);
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        padding: 5px 9px;
+        outline: none;
+      }
+      input:focus-visible, textarea:focus-visible, select:focus-visible {
+        border-color: var(--oc-focus, currentColor);
+      }
+      #vault { width: 190px; }
+      .project { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+      .project b { font-size: 12px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .project select {
+        max-width: 240px;
+        padding: 0;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .project select:focus-visible { outline: 1px solid var(--oc-focus, currentColor); outline-offset: 1px; }
+      .project small { font-size: 10px; color: var(--oc-muted, rgba(127,127,127,.9)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .spacer { flex: 1 1 auto; }
+      button {
+        height: 28px;
+        padding: 0 11px;
+        border: 1px solid var(--oc-border, rgba(127,127,127,.35));
+        border-radius: 999px;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        font-size: 12px;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) { background: var(--oc-hover, rgba(127,127,127,.14)); }
+      button.primary {
+        background: var(--oc-selection, rgba(127,127,127,.2));
+        border-color: var(--oc-border, rgba(127,127,127,.35));
+        font-weight: 600;
+      }
+      button.primary:hover:not(:disabled) { background: var(--oc-active, rgba(127,127,127,.28)); }
+      button:disabled { opacity: .5; cursor: default; }
+      button:focus-visible { outline: 2px solid var(--oc-focus, currentColor); outline-offset: 1px; }
+      #error {
+        margin: 8px 16px 0;
+        padding: 7px 11px;
+        border: 1px solid var(--oc-error, #f85149);
+        border-radius: var(--oc-radius, 6px);
+        color: var(--oc-error-text, var(--oc-error, inherit));
+        font-size: 12px;
+      }
+      #error[hidden] { display: none; }
+      main { display: grid; grid-template-columns: minmax(260px, 330px) minmax(0, 1fr); min-height: 0; }
+      .list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--oc-border, rgba(127,127,127,.35)); }
+      .list-head { display: flex; align-items: center; gap: 6px; padding: 10px 12px 8px; }
+      .list-head h2 { flex: 1; margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: var(--oc-muted, rgba(127,127,127,.9)); }
+      .count { font-size: 11px; color: var(--oc-muted, rgba(127,127,127,.9)); }
+      .filters { display: flex; gap: 4px; padding: 0 12px 8px; flex-wrap: wrap; }
+      .filters button { height: 24px; padding: 0 9px; font-size: 11px; border-radius: 999px; color: var(--oc-muted, rgba(127,127,127,.9)); border-color: transparent; }
+      .filters button[aria-pressed="true"] {
+        border-color: var(--oc-border, rgba(127,127,127,.35));
+        background: var(--oc-selection, rgba(127,127,127,.18));
+        color: var(--oc-selection-fg, inherit);
+        font-weight: 600;
+      }
+      #tasks { flex: 1; min-height: 0; overflow: auto; padding: 2px 8px 12px; display: flex; flex-direction: column; gap: 5px; }
+      .task {
+        display: block;
+        width: 100%;
+        height: auto;
+        padding: 8px 10px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        text-align: left;
+        white-space: normal;
+      }
+      .task:hover:not(:disabled) { background: var(--oc-hover, rgba(127,127,127,.12)); }
+      .task[aria-selected="true"] {
+        background: var(--oc-selection, rgba(127,127,127,.18));
+        border-color: var(--oc-border, rgba(127,127,127,.35));
+      }
+      .task-title { display: block; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .task-meta { display: flex; align-items: center; gap: 6px; margin-top: 4px; font-size: 10px; color: var(--oc-muted, rgba(127,127,127,.9)); }
+      .badge {
+        display: inline-block;
+        padding: 0 6px;
+        border: 1px solid currentColor;
+        border-radius: 999px;
+        font-size: 9px;
+        line-height: 15px;
+        letter-spacing: .3px;
+        text-transform: uppercase;
+      }
+      .tone-error { color: var(--oc-error, #f85149); }
+      .tone-warning { color: var(--oc-warning, #d29922); }
+      .tone-success { color: var(--oc-success, #3fb950); }
+      .tone-info { color: var(--oc-focus, #58a6ff); }
+      .tone-muted { color: var(--oc-muted, rgba(127,127,127,.9)); }
+      .detail { min-height: 0; overflow: auto; padding: 16px 22px 28px; }
+      .detail h1 { margin: 0 0 6px; font-size: 20px; line-height: 1.25; }
+      .detail .path { margin: 0 0 12px; font-size: 11px; color: var(--oc-muted, rgba(127,127,127,.9)); word-break: break-all; }
+      .detail .meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; font-size: 11px; color: var(--oc-muted, rgba(127,127,127,.9)); }
+      .actions { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+      .actions .danger { color: var(--oc-error, #f85149); border-color: currentColor; }
+      .log { display: flex; gap: 6px; margin-bottom: 16px; }
+      .log input { flex: 1; min-width: 0; }
+      .section { border: 1px solid var(--oc-border, rgba(127,127,127,.35)); border-radius: 8px; margin-bottom: 10px; overflow: hidden; }
+      .section summary { padding: 8px 12px; font-size: 12px; font-weight: 600; cursor: pointer; user-select: none; }
+      .section pre {
+        margin: 0;
+        padding: 0 12px 12px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: var(--oc-mono, ui-monospace, SFMono-Regular, Consolas, monospace);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+      .empty { color: var(--oc-muted, rgba(127,127,127,.9)); font-size: 12px; line-height: 1.6; }
+      .empty kbd { border: 1px solid var(--oc-border, rgba(127,127,127,.35)); border-radius: 4px; padding: 0 4px; font-family: inherit; }
+      footer {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 26px;
+        padding: 4px 16px;
+        border-top: 1px solid var(--oc-border, rgba(127,127,127,.35));
+        font-size: 11px;
+        color: var(--oc-muted, rgba(127,127,127,.9));
+      }
+      footer span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      dialog {
+        width: min(560px, 92vw);
+        padding: 18px;
+        border: 1px solid var(--oc-border, rgba(127,127,127,.35));
+        border-radius: 12px;
+        background: var(--oc-bg, Canvas);
+        color: inherit;
+      }
+      dialog::backdrop { background: rgba(0, 0, 0, .45); }
+      dialog h2 { margin: 0 0 14px; font-size: 16px; }
+      .field { display: block; margin-bottom: 10px; }
+      .field > span { display: block; margin-bottom: 4px; font-size: 11px; color: var(--oc-muted, rgba(127,127,127,.9)); }
+      .field input, .field textarea, .field select { width: 100%; }
+      .field textarea { min-height: 86px; resize: vertical; line-height: 1.45; }
+      .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+      .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <div class="brand"><strong>Brain</strong><span>Agent control tower</span></div>
+        <div class="field-inline">
+          <label for="vault">Vault</label>
+          <input id="vault" type="text" spellcheck="false" autocomplete="off" aria-label="Brain vault path">
+        </div>
+        <div class="project">
+          <select id="project-select" aria-label="Project"></select>
+          <small id="project-path"></small>
+        </div>
+        <button id="bind" type="button" title="Create the project folder and task index in the vault">Bind project</button>
+        <button id="open-vault" type="button" title="Open the project index in Obsidian">Open in Obsidian</button>
+        <button id="refresh" type="button">Refresh</button>
+      </header>
+      <div id="error" hidden></div>
+      <main>
+        <section class="list">
+          <div class="list-head">
+            <h2>Tasks</h2>
+            <span id="count" class="count">0</span>
+            <button id="new-task" class="primary" type="button">New task</button>
+          </div>
+          <div class="filters" id="filters" role="group" aria-label="Filter tasks by status">
+            <button type="button" data-filter="all" aria-pressed="true">All</button>
+            <button type="button" data-filter="todo" aria-pressed="false">Todo</button>
+            <button type="button" data-filter="running" aria-pressed="false">Running</button>
+            <button type="button" data-filter="blocked" aria-pressed="false">Blocked</button>
+            <button type="button" data-filter="done" aria-pressed="false">Done</button>
+          </div>
+          <div id="tasks" role="listbox" aria-label="Tasks"></div>
+        </section>
+        <section class="detail" id="detail">
+          <p class="empty">Select a task card to inspect it.<br>Bind this project first if the vault has no folder for it yet.</p>
+        </section>
+      </main>
+      <footer><span id="activity">Ready.</span></footer>
+    </div>
+
+    <dialog id="create-dialog">
+      <form id="create-form" method="dialog">
+        <h2>New task</h2>
+        <label class="field"><span>Title</span><input id="f-title" type="text" maxlength="200" required autocomplete="off"></label>
+        <div class="field-row">
+          <label class="field"><span>Priority</span>
+            <select id="f-priority">
+              <option value="P1" selected>P1</option>
+              <option value="P0">P0</option>
+              <option value="P2">P2</option>
+              <option value="P3">P3</option>
+            </select>
+          </label>
+          <label class="field"><span>Agent</span><input id="f-agent" type="text" value="opencode" maxlength="120" autocomplete="off"></label>
+        </div>
+        <label class="field"><span>Task spec</span><textarea id="f-spec" maxlength="8000" placeholder="What should the agent do?"></textarea></label>
+        <label class="field"><span>Acceptance criteria, one per line</span><textarea id="f-criteria" maxlength="4000" placeholder="Tests pass&#10;Docs updated"></textarea></label>
+        <div class="dialog-actions">
+          <button id="f-cancel" type="button">Cancel</button>
+          <button id="f-submit" class="primary" type="submit">Create task</button>
+        </div>
+      </form>
+    </dialog>
+    <script src="./main.js"></script>
+  </body>
+</html>
