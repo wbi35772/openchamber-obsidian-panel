@@ -1807,7 +1807,11 @@ ${GUEST_UI_LOOK_CSS}`;
     projectDialog: document.querySelector("#project-dialog"),
     projectForm: document.querySelector("#project-form"),
     pName: document.querySelector("#p-name"),
-    pCancel: document.querySelector("#p-cancel")
+    pCancel: document.querySelector("#p-cancel"),
+    pCreate: document.querySelector("#p-create"),
+    pError: document.querySelector("#p-error"),
+    fSubmit: document.querySelector("#f-submit"),
+    fError: document.querySelector("#f-error")
   };
   var state = {
     ready: false,
@@ -1866,12 +1870,23 @@ ${GUEST_UI_LOOK_CSS}`;
     } catch {
     }
   };
+  var setDialogMessage = (node, text) => {
+    if (!node) return;
+    node.hidden = !text;
+    node.textContent = text || "";
+  };
   var api = async (path, body) => {
-    const result = await host.serviceRequest({
+    const pending = host.serviceRequest({
       method: "POST",
       path,
       body: JSON.stringify(body ?? {})
     });
+    const result = await Promise.race([
+      pending,
+      new Promise((_, reject) => {
+        window.setTimeout(() => reject(new Error(`\u670D\u52A1\u8BF7\u6C42\u8D85\u65F6\uFF0820 \u79D2\uFF09\uFF1A${path}`)), 2e4);
+      })
+    ]);
     let parsed = null;
     try {
       parsed = result.body ? JSON.parse(result.body) : null;
@@ -2597,15 +2612,22 @@ ${GUEST_UI_LOOK_CSS}`;
     }
   };
   var createProject = async () => {
+    setDialogMessage(nodes.pError, "");
     const rawName = nodes.pName.value.trim();
     const name = rawName.replace(/[\\/]+/g, " ").replace(/\.\./g, "").replace(/\s+/g, " ").trim().slice(0, 120);
     if (!name) {
+      setDialogMessage(nodes.pError, "\u8BF7\u5148\u586B\u5199\u9879\u76EE\u540D\u79F0\u3002");
       nodes.pName.focus();
+      return;
+    }
+    if (!state.vaultPath.trim()) {
+      setDialogMessage(nodes.pError, "\u77E5\u8BC6\u5E93\u8DEF\u5F84\u4E3A\u7A7A\uFF0C\u5148\u5728\u9876\u90E8\u586B\u5199\u77E5\u8BC6\u5E93\u8DEF\u5F84\u3002");
       return;
     }
     nodes.projectForm.querySelectorAll("button, input").forEach((node) => {
       node.disabled = true;
     });
+    say("\u6B63\u5728\u521B\u5EFA\u9879\u76EE\u2026");
     try {
       await rest("project/init", { baseFolder: state.baseFolder, project: name });
       state.projectName = name;
@@ -2616,6 +2638,7 @@ ${GUEST_UI_LOOK_CSS}`;
       state.selectedNote = null;
       nodes.projectDialog.close();
       nodes.projectForm.reset();
+      setDialogMessage(nodes.pError, "");
       await persist();
       say(`\u5DF2\u521B\u5EFA ${state.baseFolder}/${name}\u3002`);
       await toast("success", `\u5DF2\u521B\u5EFA\u9879\u76EE ${name}`);
@@ -2625,6 +2648,7 @@ ${GUEST_UI_LOOK_CSS}`;
       await loadSelected();
     } catch (error) {
       state.error = messageOf(error);
+      setDialogMessage(nodes.pError, `\u521B\u5EFA\u5931\u8D25\uFF1A${messageOf(error)}`);
     } finally {
       nodes.projectForm.querySelectorAll("button, input").forEach((node) => {
         node.disabled = false;
@@ -2635,6 +2659,7 @@ ${GUEST_UI_LOOK_CSS}`;
   var openProjectDialog = () => {
     if (state.busy) return;
     nodes.pName.value = "";
+    setDialogMessage(nodes.pError, "");
     nodes.projectDialog.showModal();
     nodes.pName.focus();
   };
@@ -2650,19 +2675,25 @@ ${GUEST_UI_LOOK_CSS}`;
     nodes.fTitle.value = "";
     nodes.fSpec.value = "";
     nodes.fCriteria.value = "";
+    setDialogMessage(nodes.fError, "");
     populateSessionOptions();
     nodes.dialog.showModal();
     nodes.fTitle.focus();
   };
   var createTask = async () => {
+    setDialogMessage(nodes.fError, "");
     if (!state.projectName) {
       openProjectDialog();
       return;
     }
     if (!state.bound) await bindProject();
-    if (!state.bound) return;
+    if (!state.bound) {
+      nodes.dialog.close();
+      return;
+    }
     const title = nodes.fTitle.value.trim();
     if (!title) {
+      setDialogMessage(nodes.fError, "\u8BF7\u5148\u586B\u5199\u4EFB\u52A1\u6807\u9898\u3002");
       nodes.fTitle.focus();
       return;
     }
@@ -2691,6 +2722,7 @@ ${GUEST_UI_LOOK_CSS}`;
       await loadSelected();
     } catch (error) {
       state.error = messageOf(error);
+      setDialogMessage(nodes.fError, `\u521B\u5EFA\u5931\u8D25\uFF1A${messageOf(error)}`);
     } finally {
       nodes.form.querySelectorAll("button, input, textarea, select").forEach((node) => {
         node.disabled = false;
@@ -2718,14 +2750,22 @@ ${GUEST_UI_LOOK_CSS}`;
   });
   nodes.newTask.addEventListener("click", () => void openTaskDialog());
   nodes.fCancel.addEventListener("click", () => nodes.dialog.close());
-  nodes.form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void createTask();
-  });
+  nodes.fSubmit.addEventListener("click", () => void createTask());
+  for (const field2 of [nodes.fTitle]) {
+    field2.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        void createTask();
+      }
+    });
+  }
   nodes.pCancel.addEventListener("click", () => nodes.projectDialog.close());
-  nodes.projectForm.addEventListener("submit", (event) => {
-    event.preventDefault();
-    void createProject();
+  nodes.pCreate.addEventListener("click", () => void createProject());
+  nodes.pName.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void createProject();
+    }
   });
   nodes.vault.addEventListener("change", () => {
     const value = nodes.vault.value.trim();

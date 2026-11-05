@@ -198,6 +198,17 @@
       .field textarea { min-height: 86px; resize: vertical; line-height: 1.45; }
       .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
       .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+      .dialog-error {
+        margin-top: 10px;
+        padding: 7px 10px;
+        border: 1px solid var(--oc-error, #f85149);
+        border-radius: var(--oc-radius, 6px);
+        color: var(--oc-error, #f85149);
+        font-size: 12px;
+        line-height: 1.45;
+        word-break: break-word;
+      }
+      .dialog-error[hidden] { display: none; }
     </style>
   </head>
   <body>
@@ -250,9 +261,10 @@
         <h2>新建知识库项目</h2>
         <p class="empty">会在 20-笔记/项目 下创建文件夹。OpenChamber 项目会自动同步，不需要手动填写路径。</p>
         <label class="field"><span>项目名称</span><input id="p-name" type="text" maxlength="120" required autocomplete="off" placeholder="20-笔记/项目 下的文件夹名"></label>
+        <div id="p-error" class="dialog-error" hidden></div>
         <div class="dialog-actions">
           <button id="p-cancel" type="button">取消</button>
-          <button id="p-create" class="primary" type="submit">创建项目</button>
+          <button id="p-create" class="primary" type="button">创建项目</button>
         </div>
       </form>
     </dialog>
@@ -275,9 +287,10 @@
         <label class="field"><span>关联会话（从选中的项目自动同步）</span><select id="f-session"></select></label>
         <label class="field"><span>任务说明</span><textarea id="f-spec" maxlength="8000" placeholder="要让 Agent 做什么？"></textarea></label>
         <label class="field"><span>验收标准（每行一条）</span><textarea id="f-criteria" maxlength="4000" placeholder="测试通过&#10;文档更新"></textarea></label>
+        <div id="f-error" class="dialog-error" hidden></div>
         <div class="dialog-actions">
           <button id="f-cancel" type="button">取消</button>
-          <button id="f-submit" class="primary" type="submit">创建任务</button>
+          <button id="f-submit" class="primary" type="button">创建任务</button>
         </div>
       </form>
     </dialog>

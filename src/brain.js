@@ -34,6 +34,10 @@ const nodes = {
   projectForm: document.querySelector('#project-form'),
   pName: document.querySelector('#p-name'),
   pCancel: document.querySelector('#p-cancel'),
+  pCreate: document.querySelector('#p-create'),
+  pError: document.querySelector('#p-error'),
+  fSubmit: document.querySelector('#f-submit'),
+  fError: document.querySelector('#f-error'),
 };
 
 const state = {
@@ -108,12 +112,24 @@ const toast = async (kind, message) => {
   } catch {}
 };
 
+const setDialogMessage = (node, text) => {
+  if (!node) return;
+  node.hidden = !text;
+  node.textContent = text || '';
+};
+
 const api = async (path, body) => {
-  const result = await host.serviceRequest({
+  const pending = host.serviceRequest({
     method: 'POST',
     path,
     body: JSON.stringify(body ?? {}),
   });
+  const result = await Promise.race([
+    pending,
+    new Promise((_, reject) => {
+      window.setTimeout(() => reject(new Error(`服务请求超时（20 秒）：${path}`)), 20000);
+    }),
+  ]);
   let parsed = null;
   try {
     parsed = result.body ? JSON.parse(result.body) : null;
@@ -901,13 +917,20 @@ const bindProject = async () => {
 };
 
 const createProject = async () => {
+  setDialogMessage(nodes.pError, '');
   const rawName = nodes.pName.value.trim();
   const name = rawName.replace(/[\\/]+/g, ' ').replace(/\.\./g, '').replace(/\s+/g, ' ').trim().slice(0, 120);
   if (!name) {
+    setDialogMessage(nodes.pError, '请先填写项目名称。');
     nodes.pName.focus();
     return;
   }
+  if (!state.vaultPath.trim()) {
+    setDialogMessage(nodes.pError, '知识库路径为空，先在顶部填写知识库路径。');
+    return;
+  }
   nodes.projectForm.querySelectorAll('button, input').forEach((node) => { node.disabled = true; });
+  say('正在创建项目…');
   try {
     await rest('project/init', { baseFolder: state.baseFolder, project: name });
     state.projectName = name;
@@ -918,6 +941,7 @@ const createProject = async () => {
     state.selectedNote = null;
     nodes.projectDialog.close();
     nodes.projectForm.reset();
+    setDialogMessage(nodes.pError, '');
     await persist();
     say(`已创建 ${state.baseFolder}/${name}。`);
     await toast('success', `已创建项目 ${name}`);
@@ -927,6 +951,7 @@ const createProject = async () => {
     await loadSelected();
   } catch (error) {
     state.error = messageOf(error);
+    setDialogMessage(nodes.pError, `创建失败：${messageOf(error)}`);
   } finally {
     nodes.projectForm.querySelectorAll('button, input').forEach((node) => { node.disabled = false; });
     renderAll();
@@ -936,6 +961,7 @@ const createProject = async () => {
 const openProjectDialog = () => {
   if (state.busy) return;
   nodes.pName.value = '';
+  setDialogMessage(nodes.pError, '');
   nodes.projectDialog.showModal();
   nodes.pName.focus();
 };
@@ -952,20 +978,26 @@ const openTaskDialog = async () => {
   nodes.fTitle.value = '';
   nodes.fSpec.value = '';
   nodes.fCriteria.value = '';
+  setDialogMessage(nodes.fError, '');
   populateSessionOptions();
   nodes.dialog.showModal();
   nodes.fTitle.focus();
 };
 
 const createTask = async () => {
+  setDialogMessage(nodes.fError, '');
   if (!state.projectName) {
     openProjectDialog();
     return;
   }
   if (!state.bound) await bindProject();
-  if (!state.bound) return;
+  if (!state.bound) {
+    nodes.dialog.close();
+    return;
+  }
   const title = nodes.fTitle.value.trim();
   if (!title) {
+    setDialogMessage(nodes.fError, '请先填写任务标题。');
     nodes.fTitle.focus();
     return;
   }
@@ -992,6 +1024,7 @@ const createTask = async () => {
     await loadSelected();
   } catch (error) {
     state.error = messageOf(error);
+    setDialogMessage(nodes.fError, `创建失败：${messageOf(error)}`);
   } finally {
     nodes.form.querySelectorAll('button, input, textarea, select').forEach((node) => { node.disabled = false; });
     renderAll();
@@ -1020,15 +1053,23 @@ nodes.openVault.addEventListener('click', () => {
 });
 nodes.newTask.addEventListener('click', () => void openTaskDialog());
 nodes.fCancel.addEventListener('click', () => nodes.dialog.close());
-nodes.form.addEventListener('submit', (event) => {
-  event.preventDefault();
-  void createTask();
-});
+nodes.fSubmit.addEventListener('click', () => void createTask());
+for (const field of [nodes.fTitle]) {
+  field.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      void createTask();
+    }
+  });
+}
 
 nodes.pCancel.addEventListener('click', () => nodes.projectDialog.close());
-nodes.projectForm.addEventListener('submit', (event) => {
-  event.preventDefault();
-  void createProject();
+nodes.pCreate.addEventListener('click', () => void createProject());
+nodes.pName.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    void createProject();
+  }
 });
 
 nodes.vault.addEventListener('change', () => {
