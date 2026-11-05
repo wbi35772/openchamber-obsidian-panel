@@ -59,11 +59,20 @@ const state = {
   selectedPath: '',
   selectedNote: null,
   error: null,
-  activity: 'Ready.',
+  activity: '就绪。',
 };
 
 const STATUSES = ['todo', 'running', 'blocked', 'done'];
-const STATUS_LABEL = { todo: 'Todo', running: 'Running', blocked: 'Blocked', done: 'Done' };
+const STATUS_LABEL = { todo: '待办', running: '进行中', blocked: '阻塞', done: '已完成' };
+const FILTER_LABEL = { all: '全部', todo: '待办', running: '进行中', blocked: '阻塞', done: '已完成' };
+const ACTIVITY_LABEL = {
+  unknown: '未知',
+  idle: '空闲',
+  running: '运行中',
+  retrying: '重试中',
+  'waiting-permission': '等待授权',
+  'waiting-question': '等待回答',
+};
 const STATUS_TONE = { todo: 'tone-muted', running: 'tone-info', blocked: 'tone-warning', done: 'tone-success' };
 const PRIORITY_TONE = { P0: 'tone-error', P1: 'tone-warning', P2: 'tone-info', P3: 'tone-muted' };
 const STATUS_RANK = { running: 0, todo: 1, blocked: 2, done: 3 };
@@ -75,7 +84,7 @@ const el = (tag, className, text) => {
   return node;
 };
 
-const messageOf = (error) => (error instanceof Error ? error.message : String(error || 'Unknown error'));
+const messageOf = (error) => (error instanceof Error ? error.message : String(error || '未知错误'));
 
 const basename = (value) => {
   const parts = String(value || '').trim().replace(/[\\/]+$/, '').split(/[\\/]/);
@@ -110,11 +119,11 @@ const api = async (path, body) => {
     parsed = result.body ? JSON.parse(result.body) : null;
   } catch {}
   if (result.status < 200 || result.status >= 300) {
-    const error = new Error(parsed?.error || `Service returned ${result.status}`);
+    const error = new Error(parsed?.error || `服务返回 ${result.status}`);
     error.status = result.status;
     throw error;
   }
-  if (parsed && parsed.ok === false) throw new Error(parsed.error || 'Request failed');
+  if (parsed && parsed.ok === false) throw new Error(parsed.error || '请求失败');
   return parsed;
 };
 
@@ -343,8 +352,8 @@ const refresh = async (quiet) => {
     }
     await loadSelected();
     if (!quiet) say(state.bound
-      ? `Loaded ${state.tasks.length} task${state.tasks.length === 1 ? '' : 's'} from ${state.vaultPath}.`
-      : `Vault ${state.vaultPath} is reachable. ${state.vaultProjects.length} project${state.vaultProjects.length === 1 ? '' : 's'} found.`);
+      ? `已从 ${state.vaultPath} 加载 ${state.tasks.length} 个任务。`
+      : `知识库 ${state.vaultPath} 可访问，找到 ${state.vaultProjects.length} 个项目。`);
   } catch (error) {
     state.error = messageOf(error);
   } finally {
@@ -402,14 +411,14 @@ const renderProjects = () => {
   if (signature !== state.projectSignature || nodes.projectSelect.options.length === 0) {
     state.projectSignature = signature;
     const options = [];
-    const placeholder = el('option', '', state.ocProjects.length || state.vaultProjects.length ? 'Select project…' : 'No projects registered');
+    const placeholder = el('option', '', state.ocProjects.length || state.vaultProjects.length ? '选择项目…' : '还没有任何项目');
     placeholder.value = '';
     options.push(placeholder);
     const linked = new Set(state.ocProjects.map((project) => project.name));
     const vaultOnly = state.vaultProjects.filter((name) => !linked.has(name));
     if (state.ocProjects.length) {
       const group = el('optgroup');
-      group.label = 'OpenChamber projects';
+      group.label = 'OpenChamber 项目';
       for (const project of state.ocProjects) {
         const option = el('option', '', project.name);
         option.value = `oc:${project.id}`;
@@ -420,7 +429,7 @@ const renderProjects = () => {
     }
     if (vaultOnly.length) {
       const group = el('optgroup');
-      group.label = 'Vault only';
+      group.label = '仅知识库';
       for (const name of vaultOnly) {
         const option = el('option', '', name);
         option.value = `vault:${name}`;
@@ -429,7 +438,7 @@ const renderProjects = () => {
       options.push(group);
     }
     if (state.projectName && !linked.has(state.projectName) && !state.vaultProjects.includes(state.projectName)) {
-      const pending = el('option', '', `${state.projectName} (new)`);
+      const pending = el('option', '', `${state.projectName}（新）`);
       pending.value = `vault:${state.projectName}`;
       options.push(pending);
     }
@@ -438,12 +447,12 @@ const renderProjects = () => {
   nodes.projectSelect.value = projectValue();
   nodes.projectSelect.disabled = state.busy;
   if (!state.projectName) {
-    nodes.projectPath.textContent = `No project selected · ${state.baseFolder}`;
+    nodes.projectPath.textContent = `未选择项目 · ${state.baseFolder}`;
     nodes.projectPath.title = nodes.projectPath.textContent;
     return;
   }
-  const parts = [projectFolder(), state.ocProjectDirectory || 'vault only'];
-  if (state.sessions.length) parts.push(`${state.sessions.length} session${state.sessions.length === 1 ? '' : 's'}`);
+  const parts = [projectFolder(), state.ocProjectDirectory || '仅知识库'];
+  if (state.sessions.length) parts.push(`${state.sessions.length} 个会话`);
   nodes.projectPath.textContent = parts.join(' · ');
   nodes.projectPath.title = nodes.projectPath.textContent;
 };
@@ -457,11 +466,11 @@ const activityTone = (activity) => {
 
 const sessionLabel = (session) => {
   const title = String(session?.title || '').trim();
-  return title || `Session ${String(session?.id || '').slice(0, 8)}`;
+  return title || `会话 ${String(session?.id || '').slice(0, 8)}`;
 };
 
 const populateSessionOptions = () => {
-  const options = [el('option', '', 'No session')];
+  const options = [el('option', '', '不关联会话')];
   options[0].value = '';
   for (const session of state.sessions) {
     const option = el('option', '', sessionLabel(session));
@@ -485,8 +494,8 @@ const renderSessions = () => {
   none.type = 'button';
   none.setAttribute('aria-pressed', String(!state.sessionId));
   none.append(
-    el('span', 'session-title', 'No session'),
-    el('span', 'session-meta', 'Task stays unlinked until dispatch'),
+    el('span', 'session-title', '不关联会话'),
+    el('span', 'session-meta', '派发前任务暂不关联会话'),
   );
   none.addEventListener('click', () => {
     state.sessionId = '';
@@ -509,7 +518,7 @@ const renderSessions = () => {
     });
     fragment.append(row);
   }
-  if (!state.sessions.length) fragment.append(el('p', 'empty', 'No sessions in this project yet. Dispatch a task to create one.'));
+  if (!state.sessions.length) fragment.append(el('p', 'empty', '这个项目还没有会话。派发一个任务就会创建。'));
   nodes.sessions.replaceChildren(fragment);
   populateSessionOptions();
 };
@@ -518,7 +527,7 @@ const renderHeader = () => {
   if (document.activeElement !== nodes.vault) nodes.vault.value = state.vaultPath;
   renderProjects();
   nodes.bind.disabled = state.busy || !state.projectName || state.bound;
-  nodes.bind.textContent = state.bound ? 'Initialized' : 'Initialize';
+  nodes.bind.textContent = state.bound ? '已初始化' : '初始化';
   nodes.openVault.disabled = state.busy || !state.bound;
   nodes.refresh.disabled = state.busy;
   nodes.newProject.disabled = state.busy;
@@ -547,26 +556,26 @@ const renderTasks = () => {
   nodes.count.textContent = String(state.tasks.length);
   if (!state.projectName) {
     nodes.tasks.replaceChildren(emptyBlock(
-      `Brain is the control page of this Obsidian extension. It reads ${state.vaultPath} and keeps one folder per project under ${state.baseFolder}.`,
-      'New project',
+      `Brain 是这个 Obsidian 扩展的控制页。它读取 ${state.vaultPath}，并在 ${state.baseFolder} 下为每个项目保留一个文件夹。`,
+      '新建项目',
       openProjectDialog,
     ));
     return;
   }
   if (!state.bound) {
     nodes.tasks.replaceChildren(emptyBlock(
-      `${projectFolder()} has no index.md yet. Initialize it to create the project index and a task folder.`,
-      'Initialize project',
+      `${projectFolder()} 还没有 index.md。初始化后会生成项目索引和任务文件夹。`,
+      '初始化项目',
       () => void bindProject(),
     ));
     return;
   }
   if (!state.tasks.length) {
-    nodes.tasks.replaceChildren(emptyBlock('No tasks yet.', 'New task', openTaskDialog));
+    nodes.tasks.replaceChildren(emptyBlock('还没有任务。', '新建任务', openTaskDialog));
     return;
   }
   if (!visible.length) {
-    nodes.tasks.replaceChildren(el('p', 'empty', `No ${state.filter} tasks.`));
+    nodes.tasks.replaceChildren(el('p', 'empty', `没有「${FILTER_LABEL[state.filter] || state.filter}」状态的任务。`));
     return;
   }
   nodes.tasks.replaceChildren(...visible.map((task) => {
@@ -641,7 +650,7 @@ const appendLog = async (text) => {
       content: `- [${stamp()}] ${content}`,
     });
     await rest('frontmatter', { notePath: state.selectedPath, key: 'updated_at', value: stamp() });
-    say('Log line appended.');
+    say('已追加执行日志。');
     await loadTasks();
     await loadSelected();
   } catch (error) {
@@ -659,19 +668,19 @@ const buildBrief = (note, taskPath) => {
   const criteria = pick('Acceptance Criteria');
   const heading = title || basename(taskPath).replace(/\.md$/i, '');
   const brief = [
-    `Obsidian task: ${taskPath} (vault ${state.vaultPath}).`,
-    `Project: ${state.projectName}.`,
-    'Follow the vault AGENTS.md rules for any note write.',
+    `Obsidian 任务：${taskPath}（知识库 ${state.vaultPath}）。`,
+    `项目：${state.projectName}。`,
+    '写入笔记时遵守知识库的 AGENTS.md 规则。',
     '',
     `# ${heading}`,
     '',
     '## Task Spec',
-    spec || '_Not specified._',
+    spec || '_未填写。_',
     '',
     '## Acceptance Criteria',
-    criteria || '_Not specified._',
+    criteria || '_未填写。_',
     '',
-    'Work this task now. When finished, set status in the task frontmatter (done or blocked) and append a short result under "## Agent Execution Log".',
+    '现在开始处理这个任务。完成后把任务 frontmatter 的 status 设为 done 或 blocked，并在「## Agent Execution Log」下追加一段简短结果。',
   ].join('\n');
   return brief.slice(0, 15000);
 };
@@ -694,7 +703,7 @@ const dispatch = async () => {
       navigation: 'open',
     });
     if (!result?.sessionId) {
-      throw new Error(result?.failure ? `Session failed: ${result.failure}` : 'Session was not created');
+      throw new Error(result?.failure ? `创建会话失败：${result.failure}` : '未能创建会话');
     }
     await rest('frontmatter', { notePath: taskPath, key: 'status', value: 'running' });
     await rest('frontmatter', { notePath: taskPath, key: 'session_id', value: result.sessionId });
@@ -704,8 +713,8 @@ const dispatch = async () => {
       heading: 'Agent Execution Log',
       content: `- [${stamp()}] dispatched to session ${result.sessionId} (Brain)`,
     });
-    say(`Dispatched ${title} to session ${result.sessionId}.`);
-    await toast('success', `Dispatched to session ${result.sessionId}`);
+    say(`已将「${title}」派发到会话 ${result.sessionId}。`);
+    await toast('success', `已派发到会话 ${result.sessionId}`);
     await loadTasks();
     await loadSelected();
   } catch (error) {
@@ -720,7 +729,7 @@ const compose = async () => {
   if (!state.selectedNote || !state.selectedPath) return;
   try {
     await host.prompt({ text: buildBrief(state.selectedNote, state.selectedPath), send: false });
-    say('Task brief placed in the current composer.');
+    say('任务简报已写入当前输入框。');
   } catch (error) {
     state.error = messageOf(error);
     renderError();
@@ -730,7 +739,7 @@ const compose = async () => {
 const openNote = async (notePath) => {
   try {
     await rest('open', { notePath, newLeaf: true });
-    say(`Opened ${notePath} in Obsidian.`);
+    say(`已在 Obsidian 中打开 ${notePath}。`);
   } catch (error) {
     state.error = messageOf(error);
     renderError();
@@ -743,8 +752,8 @@ const renderDetail = () => {
       nodes.detail.replaceChildren(
         el('h1', '', 'Brain'),
         el('p', 'path', `${state.vaultPath} · ${state.baseFolder}`),
-        el('p', 'empty', 'This page belongs to the Obsidian panel extension: it shares the same vault, service, and MCP bridge as the right-side panel.'),
-        el('p', 'empty', 'Create a project, initialize its folder in the vault, then add tasks and dispatch them to an agent session.'),
+        el('p', 'empty', '这个页面属于 Obsidian 面板扩展：与右侧面板共用同一个知识库、服务和 MCP 桥接。'),
+        el('p', 'empty', '先新建项目并初始化项目文件夹，再添加任务并派发给 Agent 会话。'),
       );
       return;
     }
@@ -752,9 +761,9 @@ const renderDetail = () => {
       el('h1', '', state.projectName),
       el('p', 'path', projectFolder()),
       el('p', 'empty', state.bound
-        ? 'Select a task to inspect it.'
-        : 'This project is not initialized yet. Use Initialize in the header.'),
-      el('p', 'empty', 'Dispatch sends the task to a new agent session; Compose writes the brief into the current chat.'),
+        ? '在左侧选择一个任务查看详情。'
+        : '这个项目还没有初始化，点顶部的「初始化」。'),
+      el('p', 'empty', '派发会新建一个 Agent 会话；写入对话只把任务说明填进当前输入框。'),
     );
     return;
   }
@@ -771,11 +780,11 @@ const renderDetail = () => {
   meta.append(
     badge(STATUS_LABEL[status], STATUS_TONE[status]),
     badge(String(frontmatter.priority || 'P1'), PRIORITY_TONE[String(frontmatter.priority || 'P1')] || 'tone-muted'),
-    el('span', '', `agent: ${frontmatter.assigned_agent || 'opencode'}`),
-    el('span', '', `task: ${frontmatter.task_id || '—'}`),
-    el('span', '', `updated: ${frontmatter.updated_at || '—'}`),
+    el('span', '', `执行者：${frontmatter.assigned_agent || 'opencode'}`),
+    el('span', '', `任务：${frontmatter.task_id || '—'}`),
+    el('span', '', `更新：${frontmatter.updated_at || '—'}`),
   );
-  if (frontmatter.session_id) meta.append(el('span', '', `session: ${frontmatter.session_id}`));
+  if (frontmatter.session_id) meta.append(el('span', '', `会话：${frontmatter.session_id}`));
   fragment.append(meta);
 
   const actions = el('div', 'actions');
@@ -786,22 +795,22 @@ const renderDetail = () => {
     button.addEventListener('click', () => void setStatus(value));
     actions.append(button);
   }
-  const dispatchButton = el('button', 'primary', 'Dispatch to agent');
+  const dispatchButton = el('button', 'primary', '派发到 Agent');
   dispatchButton.type = 'button';
   dispatchButton.disabled = state.busy;
   dispatchButton.title = state.ocProjectId
-    ? `Create a new session in ${state.ocProjectName}`
-    : 'Create a new session; no OpenChamber project matches this vault project, so it opens in the current directory';
+    ? `在 ${state.ocProjectName} 中新建会话`
+    : '新建会话；没有匹配的 OpenChamber 项目，将在当前目录打开';
   dispatchButton.addEventListener('click', () => void dispatch());
   actions.append(dispatchButton);
 
-  const composeButton = el('button', '', 'Compose in chat');
+  const composeButton = el('button', '', '写入当前对话');
   composeButton.type = 'button';
   composeButton.disabled = state.busy;
   composeButton.addEventListener('click', () => void compose());
   actions.append(composeButton);
 
-  const openButton = el('button', '', 'Open in Obsidian');
+  const openButton = el('button', '', '在 Obsidian 打开');
   openButton.type = 'button';
   openButton.disabled = state.busy;
   openButton.addEventListener('click', () => void openNote(note.path));
@@ -811,9 +820,9 @@ const renderDetail = () => {
   const logForm = el('form', 'log');
   const logInput = el('input');
   logInput.type = 'text';
-  logInput.placeholder = 'Append a line to Agent Execution Log';
+  logInput.placeholder = '往「Agent Execution Log」追加一行';
   logInput.maxLength = 2000;
-  const logButton = el('button', 'primary', 'Append');
+  const logButton = el('button', 'primary', '追加');
   logButton.type = 'submit';
   logButton.disabled = state.busy;
   logForm.append(logInput, logButton);
@@ -830,10 +839,10 @@ const renderDetail = () => {
     if (!section.title) continue;
     const details = el('details', 'section');
     details.open = shown.has(section.title.toLowerCase());
-    details.append(el('summary', '', section.title), el('pre', '', section.text || '_Empty._'));
+    details.append(el('summary', '', section.title), el('pre', '', section.text || '_空。_'));
     fragment.append(details);
   }
-  if (!parsed.sections.length) fragment.append(el('p', 'empty', 'This note has no sections yet.'));
+  if (!parsed.sections.length) fragment.append(el('p', 'empty', '这篇笔记还没有分节内容。'));
 
   nodes.detail.replaceChildren(fragment);
 };
@@ -879,8 +888,8 @@ const bindProject = async () => {
     if (!state.vaultProjects.includes(state.projectName)) {
       state.vaultProjects = [...state.vaultProjects, state.projectName].sort((left, right) => left.localeCompare(right, 'zh'));
     }
-    say(`Initialized ${state.projectName} in ${projectFolder()}.`);
-    await toast('success', `Initialized ${state.projectName}`);
+    say(`已初始化 ${state.projectName}（${projectFolder()}）。`);
+    await toast('success', `已初始化 ${state.projectName}`);
     await loadProject();
     await loadTasks();
   } catch (error) {
@@ -910,8 +919,8 @@ const createProject = async () => {
     nodes.projectDialog.close();
     nodes.projectForm.reset();
     await persist();
-    say(`Created ${state.baseFolder}/${name}.`);
-    await toast('success', `Created project ${name}`);
+    say(`已创建 ${state.baseFolder}/${name}。`);
+    await toast('success', `已创建项目 ${name}`);
     await loadProjects();
     await loadProject();
     await loadTasks();
@@ -934,7 +943,7 @@ const openProjectDialog = () => {
 const openTaskDialog = async () => {
   if (state.busy) return;
   if (!state.projectName) {
-    say('Create a project first.');
+    say('请先创建一个项目。');
     openProjectDialog();
     return;
   }
@@ -978,7 +987,7 @@ const createTask = async () => {
     nodes.form.reset();
     nodes.fAgent.value = 'opencode';
     state.selectedPath = result?.path || result?.task?.path || '';
-    say(`Created ${state.selectedPath}.`);
+    say(`已创建 ${state.selectedPath}。`);
     await loadTasks();
     await loadSelected();
   } catch (error) {

@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Brain 任务</title>
+    <style>
+      :root { color-scheme: light dark; font-family: var(--oc-font, ui-sans-serif, system-ui, sans-serif); }
+      * { box-sizing: border-box; }
+      html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+      body { background: var(--oc-bg, transparent); color: var(--oc-fg, CanvasText); font-size: 12px; }
+      button, select, input { font: inherit; color: inherit; }
+      button:disabled { opacity: .5; cursor: default; }
+      #app { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; height: 100%; }
+      .head { display: flex; align-items: center; gap: 6px; padding: 6px 8px 4px; }
+      .head strong { font-size: 12px; font-weight: 600; white-space: nowrap; }
+      .head .spacer { flex: 1; }
+      .icon {
+        display: inline-flex; width: 24px; height: 24px; flex: 0 0 24px;
+        align-items: center; justify-content: center; padding: 0;
+        border: 0; border-radius: 6px; background: transparent;
+        color: var(--oc-muted, rgba(127,127,127,.9)); cursor: pointer;
+      }
+      .icon:hover:not(:disabled) { background: var(--oc-hover, rgba(127,127,127,.12)); color: var(--oc-fg, inherit); }
+      .icon svg { width: 14px; height: 14px; pointer-events: none; }
+      .bar { padding: 0 8px 6px; }
+      select {
+        width: 100%; height: 26px; padding: 0 8px;
+        border: 1px solid var(--oc-border, rgba(127,127,127,.35)); border-radius: 7px;
+        background-color: var(--oc-bg, Canvas); color: var(--oc-fg, CanvasText);
+        color-scheme: light dark;
+      }
+      select option, select optgroup { background-color: var(--oc-bg, Canvas); color: var(--oc-fg, CanvasText); }
+      #error { margin: 0 8px 4px; padding: 4px 7px; border-radius: 6px; font-size: 11px;
+        background: color-mix(in srgb, #f85149 16%, transparent); color: #f85149; }
+      #error[hidden] { display: none; }
+      #list { min-height: 0; overflow: auto; padding: 2px 6px 6px; display: flex; flex-direction: column; gap: 3px; }
+      .row {
+        display: flex; align-items: center; gap: 7px; width: 100%;
+        padding: 5px 7px; border: 1px solid transparent; border-radius: 7px;
+        background: transparent; text-align: left; cursor: pointer;
+      }
+      .row:hover { background: var(--oc-hover, rgba(127,127,127,.12)); }
+      .row[aria-selected="true"] { background: var(--oc-selection, rgba(127,127,127,.18)); border-color: var(--oc-border, rgba(127,127,127,.35)); }
+      .dot { width: 7px; height: 7px; flex: 0 0 7px; border-radius: 50%; background: var(--oc-muted, currentColor); }
+      .dot[data-status="running"] { background: #3b82f6; }
+      .dot[data-status="blocked"] { background: #d29922; }
+      .dot[data-status="done"] { background: #3fb950; }
+      .title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .prio { flex: 0 0 auto; font-size: 10px; color: var(--oc-muted, rgba(127,127,127,.9)); }
+      .empty { margin: 6px 8px; color: var(--oc-muted, rgba(127,127,127,.9)); font-size: 11px; line-height: 1.5; }
+      .empty button { margin-top: 6px; }
+      #actions { border-top: 1px solid var(--oc-border, rgba(127,127,127,.25)); padding: 6px 8px 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+      #actions[hidden] { display: none; }
+      #actions .label { flex: 1 1 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--oc-muted, rgba(127,127,127,.9)); }
+      .btn {
+        height: 26px; padding: 0 9px; border: 1px solid var(--oc-border, rgba(127,127,127,.35));
+        border-radius: 7px; background: transparent; cursor: pointer; white-space: nowrap;
+      }
+      .btn:hover:not(:disabled) { background: var(--oc-hover, rgba(127,127,127,.12)); }
+      .btn.primary { background: var(--oc-selection, rgba(127,127,127,.2)); border-color: var(--oc-border, rgba(127,127,127,.5)); font-weight: 600; }
+      .btn:disabled { cursor: default; }
+      #foot { padding: 0 8px 6px; font-size: 10px; color: var(--oc-muted, rgba(127,127,127,.9)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .spin { animation: spin 1s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div class="head">
+        <strong>Brain 任务</strong>
+        <span class="spacer"></span>
+        <button id="refresh" class="icon" type="button" title="刷新任务" aria-label="刷新任务">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M20 11a8 8 0 1 0-2.34 5.66"/><path d="M20 4v7h-7"/>
+          </svg>
+        </button>
+      </div>
+      <div class="bar">
+        <select id="project" aria-label="选择项目"></select>
+      </div>
+      <div id="error" hidden></div>
+      <div id="list"></div>
+      <div id="actions" hidden></div>
+      <div id="foot"></div>
+    </div>
+    <script src="./section.js"></script>
+  </body>
+</html>

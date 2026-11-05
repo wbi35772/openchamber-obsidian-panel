@@ -1832,10 +1832,11 @@ ${GUEST_UI_LOOK_CSS}`;
     selectedPath: "",
     selectedNote: null,
     error: null,
-    activity: "Ready."
+    activity: "\u5C31\u7EEA\u3002"
   };
   var STATUSES = ["todo", "running", "blocked", "done"];
-  var STATUS_LABEL = { todo: "Todo", running: "Running", blocked: "Blocked", done: "Done" };
+  var STATUS_LABEL = { todo: "\u5F85\u529E", running: "\u8FDB\u884C\u4E2D", blocked: "\u963B\u585E", done: "\u5DF2\u5B8C\u6210" };
+  var FILTER_LABEL = { all: "\u5168\u90E8", todo: "\u5F85\u529E", running: "\u8FDB\u884C\u4E2D", blocked: "\u963B\u585E", done: "\u5DF2\u5B8C\u6210" };
   var STATUS_TONE = { todo: "tone-muted", running: "tone-info", blocked: "tone-warning", done: "tone-success" };
   var PRIORITY_TONE = { P0: "tone-error", P1: "tone-warning", P2: "tone-info", P3: "tone-muted" };
   var STATUS_RANK = { running: 0, todo: 1, blocked: 2, done: 3 };
@@ -1845,7 +1846,7 @@ ${GUEST_UI_LOOK_CSS}`;
     if (text !== void 0) node.textContent = text;
     return node;
   };
-  var messageOf = (error) => error instanceof Error ? error.message : String(error || "Unknown error");
+  var messageOf = (error) => error instanceof Error ? error.message : String(error || "\u672A\u77E5\u9519\u8BEF");
   var basename = (value) => {
     const parts = String(value || "").trim().replace(/[\\/]+$/, "").split(/[\\/]/);
     return parts[parts.length - 1] || "";
@@ -1877,11 +1878,11 @@ ${GUEST_UI_LOOK_CSS}`;
     } catch {
     }
     if (result.status < 200 || result.status >= 300) {
-      const error = new Error(parsed?.error || `Service returned ${result.status}`);
+      const error = new Error(parsed?.error || `\u670D\u52A1\u8FD4\u56DE ${result.status}`);
       error.status = result.status;
       throw error;
     }
-    if (parsed && parsed.ok === false) throw new Error(parsed.error || "Request failed");
+    if (parsed && parsed.ok === false) throw new Error(parsed.error || "\u8BF7\u6C42\u5931\u8D25");
     return parsed;
   };
   var rest = (route, body) => api(`/obsidian/rest/${route}`, { vaultPath: state.vaultPath, ...body });
@@ -2088,7 +2089,7 @@ ${GUEST_UI_LOOK_CSS}`;
         state.selectedNote = null;
       }
       await loadSelected();
-      if (!quiet) say(state.bound ? `Loaded ${state.tasks.length} task${state.tasks.length === 1 ? "" : "s"} from ${state.vaultPath}.` : `Vault ${state.vaultPath} is reachable. ${state.vaultProjects.length} project${state.vaultProjects.length === 1 ? "" : "s"} found.`);
+      if (!quiet) say(state.bound ? `\u5DF2\u4ECE ${state.vaultPath} \u52A0\u8F7D ${state.tasks.length} \u4E2A\u4EFB\u52A1\u3002` : `\u77E5\u8BC6\u5E93 ${state.vaultPath} \u53EF\u8BBF\u95EE\uFF0C\u627E\u5230 ${state.vaultProjects.length} \u4E2A\u9879\u76EE\u3002`);
     } catch (error) {
       state.error = messageOf(error);
     } finally {
@@ -2139,14 +2140,14 @@ ${GUEST_UI_LOOK_CSS}`;
     if (signature !== state.projectSignature || nodes.projectSelect.options.length === 0) {
       state.projectSignature = signature;
       const options = [];
-      const placeholder = el2("option", "", state.ocProjects.length || state.vaultProjects.length ? "Select project\u2026" : "No projects registered");
+      const placeholder = el2("option", "", state.ocProjects.length || state.vaultProjects.length ? "\u9009\u62E9\u9879\u76EE\u2026" : "\u8FD8\u6CA1\u6709\u4EFB\u4F55\u9879\u76EE");
       placeholder.value = "";
       options.push(placeholder);
       const linked = new Set(state.ocProjects.map((project) => project.name));
       const vaultOnly = state.vaultProjects.filter((name) => !linked.has(name));
       if (state.ocProjects.length) {
         const group = el2("optgroup");
-        group.label = "OpenChamber projects";
+        group.label = "OpenChamber \u9879\u76EE";
         for (const project of state.ocProjects) {
           const option = el2("option", "", project.name);
           option.value = `oc:${project.id}`;
@@ -2157,7 +2158,7 @@ ${GUEST_UI_LOOK_CSS}`;
       }
       if (vaultOnly.length) {
         const group = el2("optgroup");
-        group.label = "Vault only";
+        group.label = "\u4EC5\u77E5\u8BC6\u5E93";
         for (const name of vaultOnly) {
           const option = el2("option", "", name);
           option.value = `vault:${name}`;
@@ -2166,7 +2167,7 @@ ${GUEST_UI_LOOK_CSS}`;
         options.push(group);
       }
       if (state.projectName && !linked.has(state.projectName) && !state.vaultProjects.includes(state.projectName)) {
-        const pending = el2("option", "", `${state.projectName} (new)`);
+        const pending = el2("option", "", `${state.projectName}\uFF08\u65B0\uFF09`);
         pending.value = `vault:${state.projectName}`;
         options.push(pending);
       }
@@ -2175,12 +2176,12 @@ ${GUEST_UI_LOOK_CSS}`;
     nodes.projectSelect.value = projectValue();
     nodes.projectSelect.disabled = state.busy;
     if (!state.projectName) {
-      nodes.projectPath.textContent = `No project selected \xB7 ${state.baseFolder}`;
+      nodes.projectPath.textContent = `\u672A\u9009\u62E9\u9879\u76EE \xB7 ${state.baseFolder}`;
       nodes.projectPath.title = nodes.projectPath.textContent;
       return;
     }
-    const parts = [projectFolder(), state.ocProjectDirectory || "vault only"];
-    if (state.sessions.length) parts.push(`${state.sessions.length} session${state.sessions.length === 1 ? "" : "s"}`);
+    const parts = [projectFolder(), state.ocProjectDirectory || "\u4EC5\u77E5\u8BC6\u5E93"];
+    if (state.sessions.length) parts.push(`${state.sessions.length} \u4E2A\u4F1A\u8BDD`);
     nodes.projectPath.textContent = parts.join(" \xB7 ");
     nodes.projectPath.title = nodes.projectPath.textContent;
   };
@@ -2192,10 +2193,10 @@ ${GUEST_UI_LOOK_CSS}`;
   };
   var sessionLabel = (session) => {
     const title = String(session?.title || "").trim();
-    return title || `Session ${String(session?.id || "").slice(0, 8)}`;
+    return title || `\u4F1A\u8BDD ${String(session?.id || "").slice(0, 8)}`;
   };
   var populateSessionOptions = () => {
-    const options = [el2("option", "", "No session")];
+    const options = [el2("option", "", "\u4E0D\u5173\u8054\u4F1A\u8BDD")];
     options[0].value = "";
     for (const session of state.sessions) {
       const option = el2("option", "", sessionLabel(session));
@@ -2218,8 +2219,8 @@ ${GUEST_UI_LOOK_CSS}`;
     none.type = "button";
     none.setAttribute("aria-pressed", String(!state.sessionId));
     none.append(
-      el2("span", "session-title", "No session"),
-      el2("span", "session-meta", "Task stays unlinked until dispatch")
+      el2("span", "session-title", "\u4E0D\u5173\u8054\u4F1A\u8BDD"),
+      el2("span", "session-meta", "\u6D3E\u53D1\u524D\u4EFB\u52A1\u6682\u4E0D\u5173\u8054\u4F1A\u8BDD")
     );
     none.addEventListener("click", () => {
       state.sessionId = "";
@@ -2242,7 +2243,7 @@ ${GUEST_UI_LOOK_CSS}`;
       });
       fragment.append(row);
     }
-    if (!state.sessions.length) fragment.append(el2("p", "empty", "No sessions in this project yet. Dispatch a task to create one."));
+    if (!state.sessions.length) fragment.append(el2("p", "empty", "\u8FD9\u4E2A\u9879\u76EE\u8FD8\u6CA1\u6709\u4F1A\u8BDD\u3002\u6D3E\u53D1\u4E00\u4E2A\u4EFB\u52A1\u5C31\u4F1A\u521B\u5EFA\u3002"));
     nodes.sessions.replaceChildren(fragment);
     populateSessionOptions();
   };
@@ -2250,7 +2251,7 @@ ${GUEST_UI_LOOK_CSS}`;
     if (document.activeElement !== nodes.vault) nodes.vault.value = state.vaultPath;
     renderProjects();
     nodes.bind.disabled = state.busy || !state.projectName || state.bound;
-    nodes.bind.textContent = state.bound ? "Initialized" : "Initialize";
+    nodes.bind.textContent = state.bound ? "\u5DF2\u521D\u59CB\u5316" : "\u521D\u59CB\u5316";
     nodes.openVault.disabled = state.busy || !state.bound;
     nodes.refresh.disabled = state.busy;
     nodes.newProject.disabled = state.busy;
@@ -2275,26 +2276,26 @@ ${GUEST_UI_LOOK_CSS}`;
     nodes.count.textContent = String(state.tasks.length);
     if (!state.projectName) {
       nodes.tasks.replaceChildren(emptyBlock(
-        `Brain is the control page of this Obsidian extension. It reads ${state.vaultPath} and keeps one folder per project under ${state.baseFolder}.`,
-        "New project",
+        `Brain \u662F\u8FD9\u4E2A Obsidian \u6269\u5C55\u7684\u63A7\u5236\u9875\u3002\u5B83\u8BFB\u53D6 ${state.vaultPath}\uFF0C\u5E76\u5728 ${state.baseFolder} \u4E0B\u4E3A\u6BCF\u4E2A\u9879\u76EE\u4FDD\u7559\u4E00\u4E2A\u6587\u4EF6\u5939\u3002`,
+        "\u65B0\u5EFA\u9879\u76EE",
         openProjectDialog
       ));
       return;
     }
     if (!state.bound) {
       nodes.tasks.replaceChildren(emptyBlock(
-        `${projectFolder()} has no index.md yet. Initialize it to create the project index and a task folder.`,
-        "Initialize project",
+        `${projectFolder()} \u8FD8\u6CA1\u6709 index.md\u3002\u521D\u59CB\u5316\u540E\u4F1A\u751F\u6210\u9879\u76EE\u7D22\u5F15\u548C\u4EFB\u52A1\u6587\u4EF6\u5939\u3002`,
+        "\u521D\u59CB\u5316\u9879\u76EE",
         () => void bindProject()
       ));
       return;
     }
     if (!state.tasks.length) {
-      nodes.tasks.replaceChildren(emptyBlock("No tasks yet.", "New task", openTaskDialog));
+      nodes.tasks.replaceChildren(emptyBlock("\u8FD8\u6CA1\u6709\u4EFB\u52A1\u3002", "\u65B0\u5EFA\u4EFB\u52A1", openTaskDialog));
       return;
     }
     if (!visible.length) {
-      nodes.tasks.replaceChildren(el2("p", "empty", `No ${state.filter} tasks.`));
+      nodes.tasks.replaceChildren(el2("p", "empty", `\u6CA1\u6709\u300C${FILTER_LABEL[state.filter] || state.filter}\u300D\u72B6\u6001\u7684\u4EFB\u52A1\u3002`));
       return;
     }
     nodes.tasks.replaceChildren(...visible.map((task) => {
@@ -2366,7 +2367,7 @@ ${GUEST_UI_LOOK_CSS}`;
         content: `- [${stamp()}] ${content}`
       });
       await rest("frontmatter", { notePath: state.selectedPath, key: "updated_at", value: stamp() });
-      say("Log line appended.");
+      say("\u5DF2\u8FFD\u52A0\u6267\u884C\u65E5\u5FD7\u3002");
       await loadTasks();
       await loadSelected();
     } catch (error) {
@@ -2383,19 +2384,19 @@ ${GUEST_UI_LOOK_CSS}`;
     const criteria = pick("Acceptance Criteria");
     const heading = title || basename(taskPath).replace(/\.md$/i, "");
     const brief = [
-      `Obsidian task: ${taskPath} (vault ${state.vaultPath}).`,
-      `Project: ${state.projectName}.`,
-      "Follow the vault AGENTS.md rules for any note write.",
+      `Obsidian \u4EFB\u52A1\uFF1A${taskPath}\uFF08\u77E5\u8BC6\u5E93 ${state.vaultPath}\uFF09\u3002`,
+      `\u9879\u76EE\uFF1A${state.projectName}\u3002`,
+      "\u5199\u5165\u7B14\u8BB0\u65F6\u9075\u5B88\u77E5\u8BC6\u5E93\u7684 AGENTS.md \u89C4\u5219\u3002",
       "",
       `# ${heading}`,
       "",
       "## Task Spec",
-      spec || "_Not specified._",
+      spec || "_\u672A\u586B\u5199\u3002_",
       "",
       "## Acceptance Criteria",
-      criteria || "_Not specified._",
+      criteria || "_\u672A\u586B\u5199\u3002_",
       "",
-      'Work this task now. When finished, set status in the task frontmatter (done or blocked) and append a short result under "## Agent Execution Log".'
+      "\u73B0\u5728\u5F00\u59CB\u5904\u7406\u8FD9\u4E2A\u4EFB\u52A1\u3002\u5B8C\u6210\u540E\u628A\u4EFB\u52A1 frontmatter \u7684 status \u8BBE\u4E3A done \u6216 blocked\uFF0C\u5E76\u5728\u300C## Agent Execution Log\u300D\u4E0B\u8FFD\u52A0\u4E00\u6BB5\u7B80\u77ED\u7ED3\u679C\u3002"
     ].join("\n");
     return brief.slice(0, 15e3);
   };
@@ -2417,7 +2418,7 @@ ${GUEST_UI_LOOK_CSS}`;
         navigation: "open"
       });
       if (!result?.sessionId) {
-        throw new Error(result?.failure ? `Session failed: ${result.failure}` : "Session was not created");
+        throw new Error(result?.failure ? `\u521B\u5EFA\u4F1A\u8BDD\u5931\u8D25\uFF1A${result.failure}` : "\u672A\u80FD\u521B\u5EFA\u4F1A\u8BDD");
       }
       await rest("frontmatter", { notePath: taskPath, key: "status", value: "running" });
       await rest("frontmatter", { notePath: taskPath, key: "session_id", value: result.sessionId });
@@ -2427,8 +2428,8 @@ ${GUEST_UI_LOOK_CSS}`;
         heading: "Agent Execution Log",
         content: `- [${stamp()}] dispatched to session ${result.sessionId} (Brain)`
       });
-      say(`Dispatched ${title} to session ${result.sessionId}.`);
-      await toast("success", `Dispatched to session ${result.sessionId}`);
+      say(`\u5DF2\u5C06\u300C${title}\u300D\u6D3E\u53D1\u5230\u4F1A\u8BDD ${result.sessionId}\u3002`);
+      await toast("success", `\u5DF2\u6D3E\u53D1\u5230\u4F1A\u8BDD ${result.sessionId}`);
       await loadTasks();
       await loadSelected();
     } catch (error) {
@@ -2442,7 +2443,7 @@ ${GUEST_UI_LOOK_CSS}`;
     if (!state.selectedNote || !state.selectedPath) return;
     try {
       await host.prompt({ text: buildBrief(state.selectedNote, state.selectedPath), send: false });
-      say("Task brief placed in the current composer.");
+      say("\u4EFB\u52A1\u7B80\u62A5\u5DF2\u5199\u5165\u5F53\u524D\u8F93\u5165\u6846\u3002");
     } catch (error) {
       state.error = messageOf(error);
       renderError();
@@ -2451,7 +2452,7 @@ ${GUEST_UI_LOOK_CSS}`;
   var openNote = async (notePath) => {
     try {
       await rest("open", { notePath, newLeaf: true });
-      say(`Opened ${notePath} in Obsidian.`);
+      say(`\u5DF2\u5728 Obsidian \u4E2D\u6253\u5F00 ${notePath}\u3002`);
     } catch (error) {
       state.error = messageOf(error);
       renderError();
@@ -2463,16 +2464,16 @@ ${GUEST_UI_LOOK_CSS}`;
         nodes.detail.replaceChildren(
           el2("h1", "", "Brain"),
           el2("p", "path", `${state.vaultPath} \xB7 ${state.baseFolder}`),
-          el2("p", "empty", "This page belongs to the Obsidian panel extension: it shares the same vault, service, and MCP bridge as the right-side panel."),
-          el2("p", "empty", "Create a project, initialize its folder in the vault, then add tasks and dispatch them to an agent session.")
+          el2("p", "empty", "\u8FD9\u4E2A\u9875\u9762\u5C5E\u4E8E Obsidian \u9762\u677F\u6269\u5C55\uFF1A\u4E0E\u53F3\u4FA7\u9762\u677F\u5171\u7528\u540C\u4E00\u4E2A\u77E5\u8BC6\u5E93\u3001\u670D\u52A1\u548C MCP \u6865\u63A5\u3002"),
+          el2("p", "empty", "\u5148\u65B0\u5EFA\u9879\u76EE\u5E76\u521D\u59CB\u5316\u9879\u76EE\u6587\u4EF6\u5939\uFF0C\u518D\u6DFB\u52A0\u4EFB\u52A1\u5E76\u6D3E\u53D1\u7ED9 Agent \u4F1A\u8BDD\u3002")
         );
         return;
       }
       nodes.detail.replaceChildren(
         el2("h1", "", state.projectName),
         el2("p", "path", projectFolder()),
-        el2("p", "empty", state.bound ? "Select a task to inspect it." : "This project is not initialized yet. Use Initialize in the header."),
-        el2("p", "empty", "Dispatch sends the task to a new agent session; Compose writes the brief into the current chat.")
+        el2("p", "empty", state.bound ? "\u5728\u5DE6\u4FA7\u9009\u62E9\u4E00\u4E2A\u4EFB\u52A1\u67E5\u770B\u8BE6\u60C5\u3002" : "\u8FD9\u4E2A\u9879\u76EE\u8FD8\u6CA1\u6709\u521D\u59CB\u5316\uFF0C\u70B9\u9876\u90E8\u7684\u300C\u521D\u59CB\u5316\u300D\u3002"),
+        el2("p", "empty", "\u6D3E\u53D1\u4F1A\u65B0\u5EFA\u4E00\u4E2A Agent \u4F1A\u8BDD\uFF1B\u5199\u5165\u5BF9\u8BDD\u53EA\u628A\u4EFB\u52A1\u8BF4\u660E\u586B\u8FDB\u5F53\u524D\u8F93\u5165\u6846\u3002")
       );
       return;
     }
@@ -2487,11 +2488,11 @@ ${GUEST_UI_LOOK_CSS}`;
     meta.append(
       badge(STATUS_LABEL[status], STATUS_TONE[status]),
       badge(String(frontmatter.priority || "P1"), PRIORITY_TONE[String(frontmatter.priority || "P1")] || "tone-muted"),
-      el2("span", "", `agent: ${frontmatter.assigned_agent || "opencode"}`),
-      el2("span", "", `task: ${frontmatter.task_id || "\u2014"}`),
-      el2("span", "", `updated: ${frontmatter.updated_at || "\u2014"}`)
+      el2("span", "", `\u6267\u884C\u8005\uFF1A${frontmatter.assigned_agent || "opencode"}`),
+      el2("span", "", `\u4EFB\u52A1\uFF1A${frontmatter.task_id || "\u2014"}`),
+      el2("span", "", `\u66F4\u65B0\uFF1A${frontmatter.updated_at || "\u2014"}`)
     );
-    if (frontmatter.session_id) meta.append(el2("span", "", `session: ${frontmatter.session_id}`));
+    if (frontmatter.session_id) meta.append(el2("span", "", `\u4F1A\u8BDD\uFF1A${frontmatter.session_id}`));
     fragment.append(meta);
     const actions = el2("div", "actions");
     for (const value of STATUSES) {
@@ -2501,18 +2502,18 @@ ${GUEST_UI_LOOK_CSS}`;
       button2.addEventListener("click", () => void setStatus(value));
       actions.append(button2);
     }
-    const dispatchButton = el2("button", "primary", "Dispatch to agent");
+    const dispatchButton = el2("button", "primary", "\u6D3E\u53D1\u5230 Agent");
     dispatchButton.type = "button";
     dispatchButton.disabled = state.busy;
-    dispatchButton.title = state.ocProjectId ? `Create a new session in ${state.ocProjectName}` : "Create a new session; no OpenChamber project matches this vault project, so it opens in the current directory";
+    dispatchButton.title = state.ocProjectId ? `\u5728 ${state.ocProjectName} \u4E2D\u65B0\u5EFA\u4F1A\u8BDD` : "\u65B0\u5EFA\u4F1A\u8BDD\uFF1B\u6CA1\u6709\u5339\u914D\u7684 OpenChamber \u9879\u76EE\uFF0C\u5C06\u5728\u5F53\u524D\u76EE\u5F55\u6253\u5F00";
     dispatchButton.addEventListener("click", () => void dispatch());
     actions.append(dispatchButton);
-    const composeButton = el2("button", "", "Compose in chat");
+    const composeButton = el2("button", "", "\u5199\u5165\u5F53\u524D\u5BF9\u8BDD");
     composeButton.type = "button";
     composeButton.disabled = state.busy;
     composeButton.addEventListener("click", () => void compose());
     actions.append(composeButton);
-    const openButton = el2("button", "", "Open in Obsidian");
+    const openButton = el2("button", "", "\u5728 Obsidian \u6253\u5F00");
     openButton.type = "button";
     openButton.disabled = state.busy;
     openButton.addEventListener("click", () => void openNote(note.path));
@@ -2521,9 +2522,9 @@ ${GUEST_UI_LOOK_CSS}`;
     const logForm = el2("form", "log");
     const logInput = el2("input");
     logInput.type = "text";
-    logInput.placeholder = "Append a line to Agent Execution Log";
+    logInput.placeholder = "\u5F80\u300CAgent Execution Log\u300D\u8FFD\u52A0\u4E00\u884C";
     logInput.maxLength = 2e3;
-    const logButton = el2("button", "primary", "Append");
+    const logButton = el2("button", "primary", "\u8FFD\u52A0");
     logButton.type = "submit";
     logButton.disabled = state.busy;
     logForm.append(logInput, logButton);
@@ -2539,10 +2540,10 @@ ${GUEST_UI_LOOK_CSS}`;
       if (!section.title) continue;
       const details = el2("details", "section");
       details.open = shown.has(section.title.toLowerCase());
-      details.append(el2("summary", "", section.title), el2("pre", "", section.text || "_Empty._"));
+      details.append(el2("summary", "", section.title), el2("pre", "", section.text || "_\u7A7A\u3002_"));
       fragment.append(details);
     }
-    if (!parsed.sections.length) fragment.append(el2("p", "empty", "This note has no sections yet."));
+    if (!parsed.sections.length) fragment.append(el2("p", "empty", "\u8FD9\u7BC7\u7B14\u8BB0\u8FD8\u6CA1\u6709\u5206\u8282\u5185\u5BB9\u3002"));
     nodes.detail.replaceChildren(fragment);
   };
   var renderAll = () => {
@@ -2584,8 +2585,8 @@ ${GUEST_UI_LOOK_CSS}`;
       if (!state.vaultProjects.includes(state.projectName)) {
         state.vaultProjects = [...state.vaultProjects, state.projectName].sort((left, right) => left.localeCompare(right, "zh"));
       }
-      say(`Initialized ${state.projectName} in ${projectFolder()}.`);
-      await toast("success", `Initialized ${state.projectName}`);
+      say(`\u5DF2\u521D\u59CB\u5316 ${state.projectName}\uFF08${projectFolder()}\uFF09\u3002`);
+      await toast("success", `\u5DF2\u521D\u59CB\u5316 ${state.projectName}`);
       await loadProject();
       await loadTasks();
     } catch (error) {
@@ -2616,8 +2617,8 @@ ${GUEST_UI_LOOK_CSS}`;
       nodes.projectDialog.close();
       nodes.projectForm.reset();
       await persist();
-      say(`Created ${state.baseFolder}/${name}.`);
-      await toast("success", `Created project ${name}`);
+      say(`\u5DF2\u521B\u5EFA ${state.baseFolder}/${name}\u3002`);
+      await toast("success", `\u5DF2\u521B\u5EFA\u9879\u76EE ${name}`);
       await loadProjects();
       await loadProject();
       await loadTasks();
@@ -2640,7 +2641,7 @@ ${GUEST_UI_LOOK_CSS}`;
   var openTaskDialog = async () => {
     if (state.busy) return;
     if (!state.projectName) {
-      say("Create a project first.");
+      say("\u8BF7\u5148\u521B\u5EFA\u4E00\u4E2A\u9879\u76EE\u3002");
       openProjectDialog();
       return;
     }
@@ -2685,7 +2686,7 @@ ${GUEST_UI_LOOK_CSS}`;
       nodes.form.reset();
       nodes.fAgent.value = "opencode";
       state.selectedPath = result?.path || result?.task?.path || "";
-      say(`Created ${state.selectedPath}.`);
+      say(`\u5DF2\u521B\u5EFA ${state.selectedPath}\u3002`);
       await loadTasks();
       await loadSelected();
     } catch (error) {

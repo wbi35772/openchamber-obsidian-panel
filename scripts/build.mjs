@@ -39,4 +39,14 @@ await Promise.all([
     sourcemap: false,
     legalComments: 'eof',
   }),
+  build({
+    entryPoints: ['src/section.js'],
+    outfile: 'brain/section.js',
+    bundle: true,
+    platform: 'browser',
+    format: 'iife',
+    target: 'es2022',
+    sourcemap: false,
+    legalComments: 'eof',
+  }),
 ]);

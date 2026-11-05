@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Brain</title>
+    <title>Brain · Agent 调度台</title>
     <style>
       :root { color-scheme: light dark; }
       * { box-sizing: border-box; }
@@ -31,7 +31,7 @@
       }
       .brand { display: flex; flex-direction: column; gap: 1px; margin-right: 6px; }
       .brand strong { font-size: 15px; letter-spacing: .2px; }
-      .brand span { font-size: 10px; color: var(--oc-muted, rgba(127,127,127,.9)); text-transform: uppercase; letter-spacing: .8px; }
+      .brand span { font-size: 10px; color: var(--oc-muted, rgba(127,127,127,.9)); letter-spacing: .5px; }
       .field-inline { display: flex; align-items: center; gap: 6px; min-width: 0; }
       .field-inline label { font-size: 11px; color: var(--oc-muted, rgba(127,127,127,.9)); white-space: nowrap; }
       input, textarea, select {
@@ -99,7 +99,7 @@
       main { display: grid; grid-template-columns: minmax(260px, 330px) minmax(0, 1fr); min-height: 0; }
       .list { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--oc-border, rgba(127,127,127,.35)); }
       .list-head { display: flex; align-items: center; gap: 6px; padding: 10px 12px 8px; }
-      .list-head h2 { flex: 1; margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; color: var(--oc-muted, rgba(127,127,127,.9)); }
+      .list-head h2 { flex: 1; margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .4px; color: var(--oc-muted, rgba(127,127,127,.9)); }
       .count { font-size: 11px; color: var(--oc-muted, rgba(127,127,127,.9)); }
       .filters { display: flex; gap: 4px; padding: 0 12px 8px; flex-wrap: wrap; }
       .filters button { height: 24px; padding: 0 9px; font-size: 11px; border-radius: 999px; color: var(--oc-muted, rgba(127,127,127,.9)); border-color: transparent; }
@@ -112,7 +112,7 @@
       #tasks { flex: 1; min-height: 0; overflow: auto; padding: 2px 8px 12px; display: flex; flex-direction: column; gap: 5px; }
       .sessions { border-top: 1px solid var(--oc-border, rgba(127,127,127,.25)); padding: 6px 8px 8px; max-height: 168px; overflow: auto; }
       .sessions[hidden] { display: none; }
-      .sessions-head { display: flex; align-items: center; gap: 6px; padding: 2px 4px 6px; font-size: 10px; letter-spacing: .6px; text-transform: uppercase; color: var(--oc-muted, rgba(127,127,127,.9)); }
+      .sessions-head { display: flex; align-items: center; gap: 6px; padding: 2px 4px 6px; font-size: 10px; letter-spacing: .3px; color: var(--oc-muted, rgba(127,127,127,.9)); }
       .sessions-head .count { margin-left: auto; }
       .session { display: flex; align-items: center; gap: 7px; width: 100%; height: auto; padding: 5px 6px; border: 1px solid transparent; border-radius: 7px; background: transparent; font-size: 12px; text-align: left; cursor: pointer; }
       .session:hover { background: var(--oc-hover, rgba(127,127,127,.12)); }
@@ -143,8 +143,7 @@
         border-radius: 999px;
         font-size: 9px;
         line-height: 15px;
-        letter-spacing: .3px;
-        text-transform: uppercase;
+        letter-spacing: .2px;
       }
       .tone-error { color: var(--oc-error, #f85149); }
       .tone-warning { color: var(--oc-warning, #d29922); }
@@ -204,66 +203,66 @@
   <body>
     <div id="app">
       <header>
-        <div class="brand"><strong>Brain</strong><span>Agent control tower</span></div>
+        <div class="brand"><strong>Brain</strong><span>Agent 调度台</span></div>
         <div class="field-inline">
-          <label for="vault">Vault</label>
-          <input id="vault" type="text" spellcheck="false" autocomplete="off" aria-label="Brain vault path">
+          <label for="vault">知识库</label>
+          <input id="vault" type="text" spellcheck="false" autocomplete="off" aria-label="Brain 知识库路径">
         </div>
         <div class="project">
-          <select id="project-select" aria-label="Vault project"></select>
+          <select id="project-select" aria-label="知识库项目"></select>
           <small id="project-path"></small>
         </div>
-        <button id="project-new" type="button" title="Create a new project folder in the vault">+ Project</button>
-        <button id="bind" type="button" title="Create the project folder and task index in the vault">Initialize</button>
-        <button id="open-vault" type="button" title="Open the project index in Obsidian">Open in Obsidian</button>
-        <button id="refresh" type="button">Refresh</button>
+        <button id="project-new" type="button" title="在知识库里新建一个项目文件夹">+ 项目</button>
+        <button id="bind" type="button" title="在知识库里创建项目索引和任务目录">初始化</button>
+        <button id="open-vault" type="button" title="在 Obsidian 中打开项目索引">在 Obsidian 打开</button>
+        <button id="refresh" type="button">刷新</button>
       </header>
       <div id="error" hidden></div>
       <main>
         <section class="list">
           <div class="list-head">
-            <h2>Tasks</h2>
+            <h2>任务</h2>
             <span id="count" class="count">0</span>
-            <button id="new-task" class="primary" type="button">New task</button>
+            <button id="new-task" class="primary" type="button">新建任务</button>
           </div>
-          <div class="filters" id="filters" role="group" aria-label="Filter tasks by status">
-            <button type="button" data-filter="all" aria-pressed="true">All</button>
-            <button type="button" data-filter="todo" aria-pressed="false">Todo</button>
-            <button type="button" data-filter="running" aria-pressed="false">Running</button>
-            <button type="button" data-filter="blocked" aria-pressed="false">Blocked</button>
-            <button type="button" data-filter="done" aria-pressed="false">Done</button>
+          <div class="filters" id="filters" role="group" aria-label="按状态筛选任务">
+            <button type="button" data-filter="all" aria-pressed="true">全部</button>
+            <button type="button" data-filter="todo" aria-pressed="false">待办</button>
+            <button type="button" data-filter="running" aria-pressed="false">进行中</button>
+            <button type="button" data-filter="blocked" aria-pressed="false">阻塞</button>
+            <button type="button" data-filter="done" aria-pressed="false">已完成</button>
           </div>
           <section class="sessions" id="sessions-panel" hidden>
-            <div class="sessions-head"><span>Sessions</span><span class="count" id="session-count">0</span></div>
+            <div class="sessions-head"><span>会话</span><span class="count" id="session-count">0</span></div>
             <div id="sessions"></div>
           </section>
-          <div id="tasks" role="listbox" aria-label="Tasks"></div>
+          <div id="tasks" role="listbox" aria-label="任务"></div>
         </section>
         <section class="detail" id="detail">
-          <p class="empty">Create or select a vault project to load its tasks.</p>
+          <p class="empty">创建或选择一个知识库项目，然后加载它的任务。</p>
         </section>
       </main>
-      <footer><span id="activity">Ready.</span></footer>
+      <footer><span id="activity">就绪。</span></footer>
     </div>
 
     <dialog id="project-dialog">
       <form id="project-form" method="dialog">
-        <h2>New vault project</h2>
-        <p class="empty">Creates the folder under 20-笔记/项目. OpenChamber projects are synced automatically and need no manual setup.</p>
-        <label class="field"><span>Project name</span><input id="p-name" type="text" maxlength="120" required autocomplete="off" placeholder="Folder name in 20-笔记/项目"></label>
+        <h2>新建知识库项目</h2>
+        <p class="empty">会在 20-笔记/项目 下创建文件夹。OpenChamber 项目会自动同步，不需要手动填写路径。</p>
+        <label class="field"><span>项目名称</span><input id="p-name" type="text" maxlength="120" required autocomplete="off" placeholder="20-笔记/项目 下的文件夹名"></label>
         <div class="dialog-actions">
-          <button id="p-cancel" type="button">Cancel</button>
-          <button id="p-create" class="primary" type="submit">Create project</button>
+          <button id="p-cancel" type="button">取消</button>
+          <button id="p-create" class="primary" type="submit">创建项目</button>
         </div>
       </form>
     </dialog>
 
     <dialog id="create-dialog">
       <form id="create-form" method="dialog">
-        <h2>New task</h2>
-        <label class="field"><span>Title</span><input id="f-title" type="text" maxlength="200" required autocomplete="off"></label>
+        <h2>新建任务</h2>
+        <label class="field"><span>标题</span><input id="f-title" type="text" maxlength="200" required autocomplete="off"></label>
         <div class="field-row">
-          <label class="field"><span>Priority</span>
+          <label class="field"><span>优先级</span>
             <select id="f-priority">
               <option value="P1" selected>P1</option>
               <option value="P0">P0</option>
@@ -271,14 +270,14 @@
               <option value="P3">P3</option>
             </select>
           </label>
-          <label class="field"><span>Agent</span><input id="f-agent" type="text" value="opencode" maxlength="120" autocomplete="off"></label>
+          <label class="field"><span>执行 Agent</span><input id="f-agent" type="text" value="opencode" maxlength="120" autocomplete="off"></label>
         </div>
-        <label class="field"><span>Session (synced from the selected project)</span><select id="f-session"></select></label>
-        <label class="field"><span>Task spec</span><textarea id="f-spec" maxlength="8000" placeholder="What should the agent do?"></textarea></label>
-        <label class="field"><span>Acceptance criteria, one per line</span><textarea id="f-criteria" maxlength="4000" placeholder="Tests pass&#10;Docs updated"></textarea></label>
+        <label class="field"><span>关联会话（从选中的项目自动同步）</span><select id="f-session"></select></label>
+        <label class="field"><span>任务说明</span><textarea id="f-spec" maxlength="8000" placeholder="要让 Agent 做什么？"></textarea></label>
+        <label class="field"><span>验收标准（每行一条）</span><textarea id="f-criteria" maxlength="4000" placeholder="测试通过&#10;文档更新"></textarea></label>
         <div class="dialog-actions">
-          <button id="f-cancel" type="button">Cancel</button>
-          <button id="f-submit" class="primary" type="submit">Create task</button>
+          <button id="f-cancel" type="button">取消</button>
+          <button id="f-submit" class="primary" type="submit">创建任务</button>
         </div>
       </form>
     </dialog>

@@ -23,6 +23,12 @@
         "entry": "brain/index.html",
         "title": "Brain"
       },
+      "statusSection": {
+        "entry": "brain/section.html",
+        "title": "Brain 任务",
+        "height": 320,
+        "defaultExpanded": true
+      },
       "service": {
         "entry": "service/main.js",
         "runtime": "host",
