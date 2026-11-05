@@ -1,5 +1,7 @@
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import http from 'node:http';
+import path from 'node:path';
 import {
   createRestClient,
   outlineMarkdown,
@@ -338,6 +340,23 @@ export const createService = ({ runtime, token, port = 0 }) => {
         if (!notePath) return text(response, 400, 'notePath is required\n');
         const content = typeof body?.content === 'string' ? body.content : '';
         return restAction(response, async () => client().writeNote(notePath, content));
+      }
+
+      if (url.pathname === '/obsidian/rest/projects') {
+        const baseFolder = stringField(body, 'baseFolder', 512) || '20-笔记/项目';
+        return restAction(response, async () => {
+          const directory = path.join(vaultPath, ...baseFolder.split('/'));
+          let projects = [];
+          try {
+            projects = fs.readdirSync(directory, { withFileTypes: true })
+              .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+              .map((entry) => entry.name)
+              .sort((left, right) => left.localeCompare(right, 'zh'));
+          } catch (error) {
+            if (error?.code !== 'ENOENT') throw error;
+          }
+          return { ok: true, baseFolder, projects };
+        });
       }
 
       if (url.pathname === '/obsidian/rest/tasks') {

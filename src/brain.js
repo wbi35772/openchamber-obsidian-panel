@@ -7,6 +7,7 @@ const nodes = {
   vault: document.querySelector('#vault'),
   projectSelect: document.querySelector('#project-select'),
   projectPath: document.querySelector('#project-path'),
+  newProject: document.querySelector('#project-new'),
   bind: document.querySelector('#bind'),
   openVault: document.querySelector('#open-vault'),
   refresh: document.querySelector('#refresh'),
@@ -25,6 +26,11 @@ const nodes = {
   fSpec: document.querySelector('#f-spec'),
   fCriteria: document.querySelector('#f-criteria'),
   fCancel: document.querySelector('#f-cancel'),
+  projectDialog: document.querySelector('#project-dialog'),
+  projectForm: document.querySelector('#project-form'),
+  pName: document.querySelector('#p-name'),
+  pPath: document.querySelector('#p-path'),
+  pCancel: document.querySelector('#p-cancel'),
 };
 
 const state = {
@@ -34,13 +40,15 @@ const state = {
   vaultPath: 'D:\\brain',
   baseFolder: '20-笔记/项目',
   directory: null,
-  projects: [],
-  projectId: '',
+  vaultProjects: [],
   projectSignature: '',
   projectName: '',
   projectDirectory: '',
-  pinnedProjectId: '',
   bound: false,
+  ocProjects: [],
+  ocProjectId: '',
+  ocProjectName: '',
+  ocProjectDirectory: '',
   tasks: [],
   filter: 'all',
   selectedPath: '',
@@ -120,6 +128,7 @@ const persist = async () => {
     await host.storage.set('settings', {
       vaultPath: state.vaultPath,
       baseFolder: state.baseFolder,
+      projectName: state.projectName,
     });
   } catch {}
 };
@@ -130,6 +139,7 @@ const loadSettings = async () => {
     if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
       if (typeof saved.vaultPath === 'string' && saved.vaultPath.trim()) state.vaultPath = saved.vaultPath.trim();
       if (typeof saved.baseFolder === 'string' && saved.baseFolder.trim()) state.baseFolder = saved.baseFolder.trim().replace(/[\\/]+/g, '/').replace(/^\/+|\/+$/g, '');
+      if (typeof saved.projectName === 'string' && saved.projectName.trim()) state.projectName = saved.projectName.trim();
     }
   } catch {}
 };
@@ -140,63 +150,56 @@ const isChatDirectory = (directory) => /[\\/]\.config[\\/]openchamber[\\/]chats[
 
 const applyDirectory = (directory) => {
   state.directory = directory || null;
-  state.pinnedProjectId = '';
 };
 
-const applyProject = () => {
-  const project = state.projects.find((item) => item.id === state.projectId) || null;
-  state.projectName = project?.name || '';
-  state.projectDirectory = project?.directory || '';
-};
-
-const resolveProject = async () => {
-  const pinned = state.pinnedProjectId && state.projects.some((item) => item.id === state.pinnedProjectId)
-    ? state.pinnedProjectId
-    : '';
-  let resolved = pinned;
-  if (!resolved) {
-    const key = pathKey(state.directory || '');
-    if (key && !isChatDirectory(state.directory)) {
-      const direct = state.projects.find((project) => pathKey(project.directory) === key);
-      if (direct) resolved = direct.id;
-      if (!resolved) {
-        for (const project of state.projects) {
-          try {
-            const snapshot = await host.listWorktrees(project.id);
-            const worktrees = Array.isArray(snapshot?.worktrees) ? snapshot.worktrees : [];
-            if (worktrees.some((worktree) => pathKey(worktree.directory) === key)) {
-              resolved = project.id;
-              break;
-            }
-          } catch {}
-        }
-      }
-    }
+const resolveOcProject = () => {
+  const name = state.projectName.trim().toLowerCase();
+  let match = name
+    ? state.ocProjects.find((project) => basename(project.directory).toLowerCase() === name)
+    : null;
+  if (!match && state.projectDirectory) {
+    match = state.ocProjects.find((project) => pathKey(project.directory) === pathKey(state.projectDirectory));
   }
-  state.projectId = resolved;
-  applyProject();
+  if (!match && state.directory && !isChatDirectory(state.directory)) {
+    match = state.ocProjects.find((project) => pathKey(project.directory) === pathKey(state.directory));
+  }
+  state.ocProjectId = match?.id || '';
+  state.ocProjectName = match?.name || '';
+  state.ocProjectDirectory = match?.directory || '';
 };
 
 const loadProjects = async () => {
+  const result = await rest('projects', { baseFolder: state.baseFolder });
+  state.vaultProjects = Array.isArray(result?.projects) ? result.projects : [];
   try {
     const snapshot = await host.listProjects();
-    state.projects = Array.isArray(snapshot?.projects) ? snapshot.projects : [];
+    state.ocProjects = Array.isArray(snapshot?.projects) ? snapshot.projects : [];
   } catch {
-    state.projects = [];
+    state.ocProjects = [];
   }
-  if (state.pinnedProjectId && !state.projects.some((item) => item.id === state.pinnedProjectId)) {
-    state.pinnedProjectId = '';
+  if (state.projectName && !state.vaultProjects.includes(state.projectName)) {
+    state.projectName = '';
   }
-  await resolveProject();
+  if (!state.projectName) {
+    const byDirectory = state.directory && !isChatDirectory(state.directory)
+      ? state.ocProjects.find((project) => pathKey(project.directory) === pathKey(state.directory))
+      : null;
+    const candidate = byDirectory?.name || (state.vaultProjects.length === 1 ? state.vaultProjects[0] : '');
+    if (candidate && state.vaultProjects.includes(candidate)) state.projectName = candidate;
+  }
+  resolveOcProject();
 };
 
-const selectProject = (id) => {
-  state.pinnedProjectId = id;
-  state.projectId = id;
-  applyProject();
+const selectProject = (name) => {
+  const next = String(name || '').trim();
+  if (next !== state.projectName) {
+    state.projectName = next;
+    state.projectDirectory = '';
+  }
   state.selectedPath = '';
   state.selectedNote = null;
   state.bound = false;
+  void persist();
   renderAll();
   void refresh(true);
 };
@@ -205,11 +208,14 @@ const loadProject = async () => {
   state.bound = false;
   if (!state.projectName) return;
   try {
-    await rest('note', { notePath: `${projectFolder()}/index.md` });
+    const result = await rest('note', { notePath: `${projectFolder()}/index.md` });
     state.bound = true;
+    const pathValue = result?.note?.frontmatter?.path;
+    if (typeof pathValue === 'string' && pathValue.trim()) state.projectDirectory = pathValue.trim();
   } catch (error) {
     if (error?.status !== 404) throw error;
   }
+  resolveOcProject();
 };
 
 const loadTasks = async () => {
@@ -265,7 +271,9 @@ const refresh = async (quiet) => {
       state.selectedNote = null;
     }
     await loadSelected();
-    if (!quiet) say(`Loaded ${state.tasks.length} task${state.tasks.length === 1 ? '' : 's'} from ${state.vaultPath}.`);
+    if (!quiet) say(state.bound
+      ? `Loaded ${state.tasks.length} task${state.tasks.length === 1 ? '' : 's'} from ${state.vaultPath}.`
+      : `Vault ${state.vaultPath} is reachable. ${state.vaultProjects.length} project${state.vaultProjects.length === 1 ? '' : 's'} found.`);
   } catch (error) {
     state.error = messageOf(error);
   } finally {
@@ -294,35 +302,62 @@ const taskStatus = (task) => {
 
 const badge = (label, tone) => el('span', `badge ${tone || 'tone-muted'}`, label);
 
+const emptyBlock = (text, actionLabel, action) => {
+  const wrap = el('div', 'empty');
+  wrap.append(el('p', '', text));
+  if (actionLabel && action) {
+    const button = el('button', 'primary', actionLabel);
+    button.type = 'button';
+    button.disabled = state.busy;
+    button.addEventListener('click', action);
+    wrap.append(button);
+  }
+  return wrap;
+};
+
 const renderProjects = () => {
-  const signature = state.projects.map((project) => `${project.id}\u0000${project.name}`).join('\u0001');
+  const signature = `${state.vaultProjects.join('\u0000')}\u0001${state.projectName}`;
   if (signature !== state.projectSignature || nodes.projectSelect.options.length === 0) {
     state.projectSignature = signature;
-    const options = [el('option', '', state.projects.length ? 'Choose project…' : 'No project registered')];
-    options[0].value = '';
-    for (const project of state.projects) {
-      const option = el('option', '', project.name);
-      option.value = project.id;
+    const options = [];
+    const placeholder = el('option', '', state.vaultProjects.length ? 'Select project…' : 'No vault projects yet');
+    placeholder.value = '';
+    options.push(placeholder);
+    for (const name of state.vaultProjects) {
+      const option = el('option', '', name);
+      option.value = name;
       options.push(option);
+    }
+    if (state.projectName && !state.vaultProjects.includes(state.projectName)) {
+      const pending = el('option', '', `${state.projectName} (not initialized)`);
+      pending.value = state.projectName;
+      options.push(pending);
     }
     nodes.projectSelect.replaceChildren(...options);
   }
-  nodes.projectSelect.value = state.projectId;
-  nodes.projectSelect.disabled = state.busy || state.projects.length === 0;
-  nodes.projectPath.textContent = state.projectDirectory
-    || (state.projects.length
-      ? 'Choose a project to load its task cards'
-      : 'No OpenChamber project registered. Add one with +, then reopen Brain');
+  nodes.projectSelect.value = state.projectName;
+  nodes.projectSelect.disabled = state.busy;
+  if (!state.projectName) {
+    nodes.projectPath.textContent = `No project selected · ${state.baseFolder}`;
+    nodes.projectPath.title = nodes.projectPath.textContent;
+    return;
+  }
+  const suffix = state.ocProjectId
+    ? ` · session project: ${state.ocProjectName}`
+    : ' · no matching OpenChamber project';
+  nodes.projectPath.textContent = `${projectFolder()}${suffix}`;
+  nodes.projectPath.title = state.ocProjectDirectory || nodes.projectPath.textContent;
 };
 
 const renderHeader = () => {
   if (document.activeElement !== nodes.vault) nodes.vault.value = state.vaultPath;
   renderProjects();
-  nodes.bind.disabled = state.busy || !state.projectId || state.bound;
-  nodes.bind.textContent = state.bound ? 'Bound' : 'Bind project';
+  nodes.bind.disabled = state.busy || !state.projectName || state.bound;
+  nodes.bind.textContent = state.bound ? 'Initialized' : 'Initialize';
   nodes.openVault.disabled = state.busy || !state.bound;
   nodes.refresh.disabled = state.busy;
-  nodes.newTask.disabled = state.busy || !state.bound;
+  nodes.newProject.disabled = state.busy;
+  nodes.newTask.disabled = state.busy;
   nodes.vault.disabled = state.busy;
 };
 
@@ -345,18 +380,24 @@ const renderFilters = () => {
 const renderTasks = () => {
   const visible = state.tasks.filter((task) => state.filter === 'all' || taskStatus(task) === state.filter);
   nodes.count.textContent = String(state.tasks.length);
-  if (!state.projectId) {
-    nodes.tasks.replaceChildren(el('p', 'empty', state.projects.length
-      ? 'Choose a project in the header to load its task cards.'
-      : 'No OpenChamber project registered yet. Add one in the app, then reopen Brain.'));
+  if (!state.projectName) {
+    nodes.tasks.replaceChildren(emptyBlock(
+      `Brain is the control page of this Obsidian extension. It reads ${state.vaultPath} and keeps one folder per project under ${state.baseFolder}.`,
+      'New project',
+      openProjectDialog,
+    ));
     return;
   }
   if (!state.bound) {
-    nodes.tasks.replaceChildren(el('p', 'empty', 'No vault folder for this project yet. Use Bind project to create one.'));
+    nodes.tasks.replaceChildren(emptyBlock(
+      `${projectFolder()} has no index.md yet. Initialize it to create the project index and a task folder.`,
+      'Initialize project',
+      () => void bindProject(),
+    ));
     return;
   }
   if (!state.tasks.length) {
-    nodes.tasks.replaceChildren(el('p', 'empty', 'No task cards yet. Create one with New task.'));
+    nodes.tasks.replaceChildren(emptyBlock('No task cards yet.', 'New task', openTaskDialog));
     return;
   }
   if (!visible.length) {
@@ -484,7 +525,7 @@ const dispatch = async () => {
       title,
       url: noteUrl(taskPath),
       text: brief,
-      ...(state.projectId ? { projectId: state.projectId } : {}),
+      ...(state.ocProjectId ? { projectId: state.ocProjectId } : {}),
       navigation: 'open',
     });
     if (!result?.sessionId) {
@@ -533,13 +574,22 @@ const openNote = async (notePath) => {
 
 const renderDetail = () => {
   if (!state.selectedNote) {
+    if (!state.projectName) {
+      nodes.detail.replaceChildren(
+        el('h1', '', 'Brain'),
+        el('p', 'path', `${state.vaultPath} · ${state.baseFolder}`),
+        el('p', 'empty', 'This page belongs to the Obsidian panel extension: it shares the same vault, service, and MCP bridge as the right-side panel.'),
+        el('p', 'empty', 'Create a project, initialize its folder in the vault, then add task cards and dispatch them to an agent session.'),
+      );
+      return;
+    }
     nodes.detail.replaceChildren(
-      el('p', 'empty', state.projectId
+      el('h1', '', state.projectName),
+      el('p', 'path', projectFolder()),
+      el('p', 'empty', state.bound
         ? 'Select a task card to inspect it.'
-        : 'No project selected. Choose one in the header to load its tasks.'),
-      el('p', 'empty', state.projectId && !state.bound
-        ? 'Bind this project first if the vault has no folder for it yet.'
-        : 'Dispatch sends the task card to a new agent session; Compose writes the brief into the current chat.'),
+        : 'This project is not initialized yet. Use Initialize in the header.'),
+      el('p', 'empty', 'Dispatch sends the task card to a new agent session; Compose writes the brief into the current chat.'),
     );
     return;
   }
@@ -573,8 +623,10 @@ const renderDetail = () => {
   }
   const dispatchButton = el('button', 'primary', 'Dispatch to agent');
   dispatchButton.type = 'button';
-  dispatchButton.disabled = state.busy || !state.projectId;
-  dispatchButton.title = state.projectId ? 'Create a new session in the selected project' : 'Choose a project first';
+  dispatchButton.disabled = state.busy;
+  dispatchButton.title = state.ocProjectId
+    ? `Create a new session in ${state.ocProjectName}`
+    : 'Create a new session; no OpenChamber project matches this vault project, so it opens in the current directory';
   dispatchButton.addEventListener('click', () => void dispatch());
   actions.append(dispatchButton);
 
@@ -647,7 +699,7 @@ const selectTask = async (taskPath) => {
 };
 
 const bindProject = async () => {
-  if (!state.projectId || state.busy) return;
+  if (!state.projectName || state.busy) return;
   state.busy = true;
   state.error = null;
   renderHeader();
@@ -658,8 +710,12 @@ const bindProject = async () => {
       projectPath: state.projectDirectory || '',
     });
     state.bound = true;
-    say(`Bound ${state.projectName} to ${projectFolder()}.`);
-    await toast('success', `Bound ${state.projectName}`);
+    if (!state.vaultProjects.includes(state.projectName)) {
+      state.vaultProjects = [...state.vaultProjects, state.projectName].sort((left, right) => left.localeCompare(right, 'zh'));
+    }
+    say(`Initialized ${state.projectName} in ${projectFolder()}.`);
+    await toast('success', `Initialized ${state.projectName}`);
+    await loadProject();
     await loadTasks();
   } catch (error) {
     state.error = messageOf(error);
@@ -669,7 +725,70 @@ const bindProject = async () => {
   }
 };
 
+const createProject = async () => {
+  const rawName = nodes.pName.value.trim();
+  const name = rawName.replace(/[\\/]+/g, ' ').replace(/\.\./g, '').replace(/\s+/g, ' ').trim().slice(0, 120);
+  if (!name) {
+    nodes.pName.focus();
+    return;
+  }
+  const directory = nodes.pPath.value.trim().slice(0, 1024);
+  nodes.projectForm.querySelectorAll('button, input').forEach((node) => { node.disabled = true; });
+  try {
+    await rest('project/init', { baseFolder: state.baseFolder, project: name, projectPath: directory });
+    state.projectName = name;
+    state.projectDirectory = directory;
+    state.bound = true;
+    state.vaultProjects = [...new Set([...state.vaultProjects, name])].sort((left, right) => left.localeCompare(right, 'zh'));
+    state.selectedPath = '';
+    state.selectedNote = null;
+    nodes.projectDialog.close();
+    nodes.projectForm.reset();
+    await persist();
+    say(`Created ${state.baseFolder}/${name}.`);
+    await toast('success', `Created project ${name}`);
+    await loadProjects();
+    await loadProject();
+    await loadTasks();
+    await loadSelected();
+  } catch (error) {
+    state.error = messageOf(error);
+  } finally {
+    nodes.projectForm.querySelectorAll('button, input').forEach((node) => { node.disabled = false; });
+    renderAll();
+  }
+};
+
+const openProjectDialog = () => {
+  if (state.busy) return;
+  nodes.pName.value = '';
+  nodes.pPath.value = state.projectDirectory || '';
+  nodes.projectDialog.showModal();
+  nodes.pName.focus();
+};
+
+const openTaskDialog = async () => {
+  if (state.busy) return;
+  if (!state.projectName) {
+    say('Create a project first.');
+    openProjectDialog();
+    return;
+  }
+  if (!state.bound) await bindProject();
+  if (!state.bound) return;
+  nodes.fTitle.value = '';
+  nodes.fSpec.value = '';
+  nodes.fCriteria.value = '';
+  nodes.dialog.showModal();
+  nodes.fTitle.focus();
+};
+
 const createTask = async () => {
+  if (!state.projectName) {
+    openProjectDialog();
+    return;
+  }
+  if (!state.bound) await bindProject();
   if (!state.bound) return;
   const title = nodes.fTitle.value.trim();
   if (!title) {
@@ -697,7 +816,6 @@ const createTask = async () => {
     await loadSelected();
   } catch (error) {
     state.error = messageOf(error);
-    renderError();
   } finally {
     nodes.form.querySelectorAll('button, input, textarea, select').forEach((node) => { node.disabled = false; });
     renderAll();
@@ -720,21 +838,21 @@ nodes.filters.addEventListener('click', (event) => {
 
 nodes.refresh.addEventListener('click', () => void refresh(false));
 nodes.bind.addEventListener('click', () => void bindProject());
+nodes.newProject.addEventListener('click', openProjectDialog);
 nodes.openVault.addEventListener('click', () => {
   if (state.bound) void openNote(`${projectFolder()}/index.md`);
 });
-nodes.newTask.addEventListener('click', () => {
-  if (!state.bound) return;
-  nodes.fTitle.value = '';
-  nodes.fSpec.value = '';
-  nodes.fCriteria.value = '';
-  nodes.dialog.showModal();
-  nodes.fTitle.focus();
-});
+nodes.newTask.addEventListener('click', () => void openTaskDialog());
 nodes.fCancel.addEventListener('click', () => nodes.dialog.close());
 nodes.form.addEventListener('submit', (event) => {
   event.preventDefault();
   void createTask();
+});
+
+nodes.pCancel.addEventListener('click', () => nodes.projectDialog.close());
+nodes.projectForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  void createProject();
 });
 
 nodes.vault.addEventListener('change', () => {
@@ -745,6 +863,9 @@ nodes.vault.addEventListener('change', () => {
   }
   if (value === state.vaultPath) return;
   state.vaultPath = value;
+  state.projectName = '';
+  state.projectDirectory = '';
+  state.vaultProjects = [];
   state.selectedPath = '';
   state.selectedNote = null;
   void persist();

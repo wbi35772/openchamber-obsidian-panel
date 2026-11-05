@@ -3640,7 +3640,7 @@ var require_websocket_server = __commonJS({
 });
 
 // src/main.js
-import path3 from "node:path";
+import path4 from "node:path";
 import { fileURLToPath } from "node:url";
 
 // src/obsidian.js
@@ -5006,7 +5006,9 @@ var createObsidianRuntime = ({
 
 // src/service.js
 import crypto2 from "node:crypto";
+import fs from "node:fs";
 import http2 from "node:http";
+import path3 from "node:path";
 
 // src/rest.js
 import http from "node:http";
@@ -5683,6 +5685,19 @@ var createService = ({ runtime, token, port = 0 }) => {
         const content = typeof body?.content === "string" ? body.content : "";
         return restAction(response, async () => client().writeNote(notePath, content));
       }
+      if (url.pathname === "/obsidian/rest/projects") {
+        const baseFolder = stringField(body, "baseFolder", 512) || "20-\u7B14\u8BB0/\u9879\u76EE";
+        return restAction(response, async () => {
+          const directory = path3.join(vaultPath, ...baseFolder.split("/"));
+          let projects = [];
+          try {
+            projects = fs.readdirSync(directory, { withFileTypes: true }).filter((entry) => entry.isDirectory() && !entry.name.startsWith(".")).map((entry) => entry.name).sort((left, right) => left.localeCompare(right, "zh"));
+          } catch (error) {
+            if (error?.code !== "ENOENT") throw error;
+          }
+          return { ok: true, baseFolder, projects };
+        });
+      }
       if (url.pathname === "/obsidian/rest/tasks") {
         const folder = stringField(body, "folder", 512);
         if (!folder) return text(response, 400, "folder is required\n");
@@ -5893,7 +5908,7 @@ var startService = async ({ env = process.env } = {}) => {
   await service.listen();
   return service;
 };
-var isMain = process.argv[1] && path3.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+var isMain = process.argv[1] && path4.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   startService().then((service) => {
     let stopping = false;

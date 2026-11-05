@@ -23,6 +23,7 @@
       header {
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 10px;
         min-width: 0;
         padding: 10px 16px;
@@ -195,10 +196,11 @@
           <input id="vault" type="text" spellcheck="false" autocomplete="off" aria-label="Brain vault path">
         </div>
         <div class="project">
-          <select id="project-select" aria-label="Project"></select>
+          <select id="project-select" aria-label="Vault project"></select>
           <small id="project-path"></small>
         </div>
-        <button id="bind" type="button" title="Create the project folder and task index in the vault">Bind project</button>
+        <button id="project-new" type="button" title="Create a new project folder in the vault">+ Project</button>
+        <button id="bind" type="button" title="Create the project folder and task index in the vault">Initialize</button>
         <button id="open-vault" type="button" title="Open the project index in Obsidian">Open in Obsidian</button>
         <button id="refresh" type="button">Refresh</button>
       </header>
@@ -220,11 +222,23 @@
           <div id="tasks" role="listbox" aria-label="Tasks"></div>
         </section>
         <section class="detail" id="detail">
-          <p class="empty">Select a task card to inspect it.<br>Bind this project first if the vault has no folder for it yet.</p>
+          <p class="empty">Create or select a vault project to load its task cards.</p>
         </section>
       </main>
       <footer><span id="activity">Ready.</span></footer>
     </div>
+
+    <dialog id="project-dialog">
+      <form id="project-form" method="dialog">
+        <h2>New project</h2>
+        <label class="field"><span>Project name</span><input id="p-name" type="text" maxlength="120" required autocomplete="off" placeholder="Project folder in 20-笔记/项目"></label>
+        <label class="field"><span>Code directory (optional)</span><input id="p-path" type="text" maxlength="1024" autocomplete="off" placeholder="D:\Project\..."></label>
+        <div class="dialog-actions">
+          <button id="p-cancel" type="button">Cancel</button>
+          <button id="p-create" class="primary" type="submit">Create project</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog id="create-dialog">
       <form id="create-form" method="dialog">
