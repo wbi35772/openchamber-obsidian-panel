@@ -23,6 +23,7 @@ const state = {
   ocProjectId: '',
   ocProjectName: '',
   bound: false,
+  followHost: true,
   sessions: 0,
   tasks: [],
   selectedPath: '',
@@ -148,16 +149,19 @@ const checkProject = async () => {
 };
 
 const resolveProject = () => {
-  const byId = state.ocProjectId
-    ? state.ocProjects.find((project) => project.id === state.ocProjectId)
-    : null;
-  const byName = !byId && state.projectName
-    ? state.ocProjects.find((project) => project.name === state.projectName)
-    : null;
-  const byDirectory = !byId && !byName && state.directory && state.projectName === ''
+  const hostProject = state.followHost && state.directory
     ? state.ocProjects.find((project) => pathKey(project.directory) === pathKey(state.directory))
     : null;
-  const selected = byId || byName || byDirectory || null;
+  const byId = !hostProject && state.ocProjectId
+    ? state.ocProjects.find((project) => project.id === state.ocProjectId)
+    : null;
+  const byName = !hostProject && !byId && state.projectName
+    ? state.ocProjects.find((project) => project.name === state.projectName)
+    : null;
+  const byDirectory = !hostProject && !byId && !byName && state.directory && state.projectName === ''
+    ? state.ocProjects.find((project) => pathKey(project.directory) === pathKey(state.directory))
+    : null;
+  const selected = hostProject || byId || byName || byDirectory || null;
   if (selected) {
     state.ocProjectId = selected.id;
     state.ocProjectName = selected.name;
@@ -230,15 +234,6 @@ const refresh = async () => {
   try {
     await loadProjects();
     await checkProject();
-    if (!state.bound && state.ocProjectId && state.projectName) {
-      await rest('project/init', {
-        baseFolder: state.baseFolder,
-        project: state.projectName,
-        projectPath: state.projectDirectory || '',
-      });
-      if (!state.vaultProjects.includes(state.projectName)) state.vaultProjects.push(state.projectName);
-      await checkProject();
-    }
     await loadSessions();
     await loadTasks();
     state.activity = state.projectName
@@ -250,6 +245,27 @@ const refresh = async () => {
     state.busy = false;
     render();
   }
+};
+
+const bindProject = async () => {
+  if (state.busy || !state.projectName) return;
+  state.busy = true;
+  state.error = null;
+  render();
+  try {
+    await rest('project/init', {
+      baseFolder: state.baseFolder,
+      project: state.projectName,
+      projectPath: state.projectDirectory || '',
+    });
+    if (!state.vaultProjects.includes(state.projectName)) state.vaultProjects.push(state.projectName);
+    state.activity = `已初始化 ${state.projectName}`;
+  } catch (error) {
+    state.error = messageOf(error);
+  } finally {
+    state.busy = false;
+  }
+  await refresh();
 };
 
 const renderProjects = () => {
@@ -303,7 +319,7 @@ const renderList = () => {
     return;
   }
   if (!state.bound) {
-    nodes.list.replaceChildren(emptyBlock(`${projectFolder()} 还没有初始化。`, '初始化项目', () => void refresh()));
+    nodes.list.replaceChildren(emptyBlock(`${projectFolder()} 还没有初始化。`, '初始化项目', () => void bindProject()));
     return;
   }
   if (!state.tasks.length) {
@@ -480,6 +496,7 @@ const openNote = async (notePath) => {
 
 const selectProject = (value) => {
   if (state.busy) return;
+  state.followHost = false;
   if (value.startsWith('oc:')) {
     const project = state.ocProjects.find((item) => item.id === value.slice(3));
     if (!project) return;
@@ -524,6 +541,11 @@ host.onReady((context) => {
   }
   state.ready = true;
   void loadSettings().then(() => refresh());
+});
+
+host.onDirectory((directory) => {
+  state.directory = directory || null;
+  if (state.followHost && state.ready) void refresh();
 });
 
 window.addEventListener('focus', () => { void refresh(); });

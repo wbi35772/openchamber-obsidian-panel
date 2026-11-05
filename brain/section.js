@@ -1796,6 +1796,7 @@ ${GUEST_UI_LOOK_CSS}`;
     ocProjectId: "",
     ocProjectName: "",
     bound: false,
+    followHost: true,
     sessions: 0,
     tasks: [],
     selectedPath: "",
@@ -1908,10 +1909,11 @@ ${GUEST_UI_LOOK_CSS}`;
     }
   };
   var resolveProject = () => {
-    const byId = state.ocProjectId ? state.ocProjects.find((project) => project.id === state.ocProjectId) : null;
-    const byName = !byId && state.projectName ? state.ocProjects.find((project) => project.name === state.projectName) : null;
-    const byDirectory = !byId && !byName && state.directory && state.projectName === "" ? state.ocProjects.find((project) => pathKey(project.directory) === pathKey(state.directory)) : null;
-    const selected = byId || byName || byDirectory || null;
+    const hostProject = state.followHost && state.directory ? state.ocProjects.find((project) => pathKey(project.directory) === pathKey(state.directory)) : null;
+    const byId = !hostProject && state.ocProjectId ? state.ocProjects.find((project) => project.id === state.ocProjectId) : null;
+    const byName = !hostProject && !byId && state.projectName ? state.ocProjects.find((project) => project.name === state.projectName) : null;
+    const byDirectory = !hostProject && !byId && !byName && state.directory && state.projectName === "" ? state.ocProjects.find((project) => pathKey(project.directory) === pathKey(state.directory)) : null;
+    const selected = hostProject || byId || byName || byDirectory || null;
     if (selected) {
       state.ocProjectId = selected.id;
       state.ocProjectName = selected.name;
@@ -1980,15 +1982,6 @@ ${GUEST_UI_LOOK_CSS}`;
     try {
       await loadProjects();
       await checkProject();
-      if (!state.bound && state.ocProjectId && state.projectName) {
-        await rest("project/init", {
-          baseFolder: state.baseFolder,
-          project: state.projectName,
-          projectPath: state.projectDirectory || ""
-        });
-        if (!state.vaultProjects.includes(state.projectName)) state.vaultProjects.push(state.projectName);
-        await checkProject();
-      }
       await loadSessions();
       await loadTasks();
       state.activity = state.projectName ? `${state.tasks.length} \u4E2A\u4EFB\u52A1${state.sessions ? ` \xB7 ${state.sessions} \u4E2A\u4F1A\u8BDD` : ""}` : "\u9009\u62E9\u4E00\u4E2A\u9879\u76EE";
@@ -1998,6 +1991,26 @@ ${GUEST_UI_LOOK_CSS}`;
       state.busy = false;
       render();
     }
+  };
+  var bindProject = async () => {
+    if (state.busy || !state.projectName) return;
+    state.busy = true;
+    state.error = null;
+    render();
+    try {
+      await rest("project/init", {
+        baseFolder: state.baseFolder,
+        project: state.projectName,
+        projectPath: state.projectDirectory || ""
+      });
+      if (!state.vaultProjects.includes(state.projectName)) state.vaultProjects.push(state.projectName);
+      state.activity = `\u5DF2\u521D\u59CB\u5316 ${state.projectName}`;
+    } catch (error) {
+      state.error = messageOf(error);
+    } finally {
+      state.busy = false;
+    }
+    await refresh();
   };
   var renderProjects = () => {
     const linked = new Set(state.ocProjects.map((project) => project.name));
@@ -2048,7 +2061,7 @@ ${GUEST_UI_LOOK_CSS}`;
       return;
     }
     if (!state.bound) {
-      nodes.list.replaceChildren(emptyBlock(`${projectFolder()} \u8FD8\u6CA1\u6709\u521D\u59CB\u5316\u3002`, "\u521D\u59CB\u5316\u9879\u76EE", () => void refresh()));
+      nodes.list.replaceChildren(emptyBlock(`${projectFolder()} \u8FD8\u6CA1\u6709\u521D\u59CB\u5316\u3002`, "\u521D\u59CB\u5316\u9879\u76EE", () => void bindProject()));
       return;
     }
     if (!state.tasks.length) {
@@ -2212,6 +2225,7 @@ ${GUEST_UI_LOOK_CSS}`;
   };
   var selectProject = (value) => {
     if (state.busy) return;
+    state.followHost = false;
     if (value.startsWith("oc:")) {
       const project = state.ocProjects.find((item) => item.id === value.slice(3));
       if (!project) return;
@@ -2252,6 +2266,10 @@ ${GUEST_UI_LOOK_CSS}`;
     }
     state.ready = true;
     void loadSettings().then(() => refresh());
+  });
+  host.onDirectory((directory) => {
+    state.directory = directory || null;
+    if (state.followHost && state.ready) void refresh();
   });
   window.addEventListener("focus", () => {
     void refresh();
