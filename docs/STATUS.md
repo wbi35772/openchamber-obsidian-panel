@@ -21,7 +21,7 @@ Obsidian Local REST API 桥，供 Brain 与 Agent 读写知识库。
 | Brain 项目下拉 | 已修 | 仅在选项内容变化时重建，刷新不再关闭展开的下拉 |
 | 仓库标签切换（多 vault） | 已修 | `#vaults` 不再被误隐藏；点击走 `/obsidian/select` |
 | 全屏 Brain 页 | 可用 | 项目/任务 CRUD、会话同步、派发 |
-| 左侧紧凑 Brain 状态区 | 可用 | 与右栏共用 `createBrainPane` |
+| 左侧紧凑 Brain 状态区 | 已修 | 不再依赖宿主 `ready`；无 `ready` 也能出项目选项并新建 |
 | REST 桥 + MCP（cyanheads 3.8.0） | 可用 | 12 工具已连 |
 | Agent 派发到新会话 | 已通 | `start-session` 带 `projectId` + 中文 brief + 笔记 URL |
 | T0 插件预装 | 完成 | Local REST API、Dataview、Templater、Breadcrumbs、Juggl、Excalidraw 等 |
@@ -40,6 +40,12 @@ Obsidian Local REST API 桥，供 Brain 与 Agent 读写知识库。
 5. **项目下拉点不开**：`renderProjects()` 每次渲染都 `replaceChildren` 重建整个 `<select>`，
    而窗口获得焦点与 10 秒定时刷新都会触发 `render()`，原生下拉刚展开就被销毁。
    改为按选项签名重建（内容不变则不动 DOM），`value`/`disabled` 也只在变化时写。
+6. **左侧状态区「选择项目」空、无「＋ 新建项目…」**：状态区 iframe 从未收到宿主
+   `ready` 推送，而 `refresh()` 和首次 `render()` 都被 `ready` 门禁挡住，导致下拉
+   只有空壳、点击无反应。改为面板创建即渲染、`refresh` 不再等 `ready`、
+   `host.listProjects()` 无条件尝试（失败吞掉）、`onReady` 先落 `ready` 再
+   try/catch 应用主题；`hello` 补发最多 60 次。另加 `freshProject`：新建项目
+   在 projects 列表尚未刷新时不会被 `resolveProject` 清空。
 
 ## 验证证据
 
@@ -55,6 +61,10 @@ Obsidian Local REST API 桥，供 Brain 与 Agent 读写知识库。
   - 画面点击转成 `surface-input` 指针事件；
   - 左侧紧凑 Brain（`brain/section.html`）：项目下拉展开 1.2 秒后选项节点保持不变，
     选择 `vault:test` 后 `settings` 持久化并重新拉取任务；
+  - **无 `ready` 场景**（假宿主只回 REST、从不推 `ready`，加载 `brain/section.html`）：
+    项目下拉出现 `初始配置 / test / ＋ 新建项目…` 并默认选中 `oc:p1`；
+    选 `＋ 新建项目…` 出现输入行，建「新建演示」后选项与选中值同步、`project/init`
+    请求体正确；切到 `vault:test` 重新拉任务并写入 `settings`；
   - `boot-error` 为空。
 - 安装目录 8 个文件 SHA256 与仓库一致：`package.json`、`panel/index.html`、
   `panel/main.js`、`brain/index.html`、`brain/main.js`、`brain/section.html`、

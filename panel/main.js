@@ -1810,6 +1810,7 @@ ${GUEST_UI_LOOK_CSS}`;
       refreshing: false,
       rerun: false,
       ready: false,
+      freshProject: "",
       error: null,
       activity: "\u5C31\u7EEA\u3002"
     };
@@ -1965,7 +1966,10 @@ ${GUEST_UI_LOOK_CSS}`;
         const snapshot = await host2.listProjects();
         state.ocProjects = Array.isArray(snapshot?.projects) ? snapshot.projects : [];
       } catch {
-        state.ocProjects = [];
+      }
+      if (state.freshProject) {
+        if (!state.vaultProjects.includes(state.freshProject)) state.vaultProjects.push(state.freshProject);
+        state.freshProject = "";
       }
       resolveProject();
       if (state.projectName && !state.vaultProjects.includes(state.projectName)) state.vaultProjects.push(state.projectName);
@@ -1983,7 +1987,7 @@ ${GUEST_UI_LOOK_CSS}`;
       }
     };
     const loadSessions = async () => {
-      if (!state.ocProjectId) {
+      if (!state.ready || !state.ocProjectId) {
         state.sessions = 0;
         return;
       }
@@ -1996,7 +2000,6 @@ ${GUEST_UI_LOOK_CSS}`;
       }
     };
     const refresh2 = async () => {
-      if (!state.ready) return;
       if (state.refreshing) {
         state.rerun = true;
         return;
@@ -2076,6 +2079,9 @@ ${GUEST_UI_LOOK_CSS}`;
           }
           options.push(group);
         }
+        const createOption2 = el2("option", "", "\uFF0B \u65B0\u5EFA\u9879\u76EE\u2026");
+        createOption2.value = "__new__";
+        options.push(createOption2);
         nodes.project.replaceChildren(...options);
       }
       const value = state.ocProjectId ? `oc:${state.ocProjectId}` : state.projectName ? `vault:${state.projectName}` : "";
@@ -2263,6 +2269,11 @@ ${GUEST_UI_LOOK_CSS}`;
     };
     const selectProject = (value) => {
       if (state.busy) return;
+      if (value === "__new__") {
+        showCreate();
+        renderProjects();
+        return;
+      }
       state.followHost = false;
       if (value.startsWith("oc:")) {
         const project = state.ocProjects.find((item) => item.id === value.slice(3));
@@ -2286,6 +2297,67 @@ ${GUEST_UI_LOOK_CSS}`;
       void saveSettings();
       void refresh2();
     };
+    const createRow = el2("div", "create-row");
+    createRow.style.cssText = "display:none;gap:4px;align-items:center;padding:4px 8px;";
+    const createInput = el2("input");
+    createInput.type = "text";
+    createInput.placeholder = "\u65B0\u9879\u76EE\u540D\u79F0";
+    createInput.style.cssText = "flex:1;min-width:0;padding:3px 6px;border:1px solid var(--oc-border, rgba(127,127,127,.35));border-radius:4px;background:var(--oc-elevated, transparent);color:inherit;font:inherit;";
+    const createOk = el2("button", "btn primary", "\u521B\u5EFA");
+    createOk.type = "button";
+    const createCancel = el2("button", "btn", "\u53D6\u6D88");
+    createCancel.type = "button";
+    createRow.append(createInput, createOk, createCancel);
+    if (nodes.project.parentElement) nodes.project.parentElement.insertAdjacentElement("afterend", createRow);
+    const hideCreate = () => {
+      createRow.style.display = "none";
+    };
+    const showCreate = () => {
+      createRow.style.display = "flex";
+      createInput.value = "";
+      try {
+        createInput.focus({ preventScroll: true });
+      } catch {
+      }
+    };
+    const createProject = async () => {
+      const name = createInput.value.trim();
+      if (!name || state.busy) return;
+      state.busy = true;
+      state.error = null;
+      render2();
+      try {
+        await rest("project/init", { baseFolder: state.baseFolder, project: name, projectPath: "" });
+        if (!state.vaultProjects.includes(name)) state.vaultProjects.push(name);
+        state.followHost = false;
+        state.ocProjectId = "";
+        state.ocProjectName = "";
+        state.projectName = name;
+        state.freshProject = name;
+        state.projectDirectory = "";
+        state.selectedPath = "";
+        await saveSettings();
+        hideCreate();
+        state.activity = `\u5DF2\u521B\u5EFA ${name}`;
+      } catch (error) {
+        state.error = messageOf2(error);
+      } finally {
+        state.busy = false;
+        render2();
+      }
+      await refresh2();
+    };
+    createOk.addEventListener("click", () => void createProject());
+    createCancel.addEventListener("click", hideCreate);
+    createInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void createProject();
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        hideCreate();
+      }
+    });
     nodes.project.addEventListener("change", () => selectProject(nodes.project.value));
     nodes.list.addEventListener("click", (event) => {
       const row = event.target.closest(".row");
@@ -2294,16 +2366,45 @@ ${GUEST_UI_LOOK_CSS}`;
       render2();
     });
     nodes.refresh.addEventListener("click", () => void refresh2());
-    host2.onReady((context) => {
-      applyHostReady(context, document.documentElement);
-      state.directory = context?.directory || null;
-      render2();
-      if (state.ready) {
-        void refresh2();
+    let readyTimer = 0;
+    let readyTries = 0;
+    const nudgeHost = () => {
+      if (state.ready || !window.parent || window.parent === window) return;
+      if (readyTries >= 60) {
+        if (readyTimer) {
+          window.clearInterval(readyTimer);
+          readyTimer = 0;
+        }
         return;
       }
+      readyTries += 1;
+      try {
+        window.parent.postMessage({ channel: "openchamber.sdk", v: 1, type: "hello" }, "*");
+      } catch {
+      }
+    };
+    nudgeHost();
+    readyTimer = window.setInterval(() => {
+      if (state.ready) {
+        window.clearInterval(readyTimer);
+        readyTimer = 0;
+        return;
+      }
+      nudgeHost();
+    }, 600);
+    host2.onReady((context) => {
+      state.directory = context?.directory || null;
       state.ready = true;
-      void loadSettings().then(() => refresh2());
+      if (readyTimer) {
+        window.clearInterval(readyTimer);
+        readyTimer = 0;
+      }
+      try {
+        applyHostReady(context, document.documentElement);
+      } catch {
+      }
+      render2();
+      void refresh2();
     });
     host2.onDirectory((directory) => {
       state.directory = directory || null;
@@ -2315,6 +2416,9 @@ ${GUEST_UI_LOOK_CSS}`;
     window.setInterval(() => {
       if (document.visibilityState === "visible") void refresh2();
     }, 1e4);
+    render2();
+    void loadSettings().then(() => refresh2());
+    void refresh2();
   };
 
   // src/panel.js
