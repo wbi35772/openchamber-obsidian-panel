@@ -18,6 +18,7 @@ Obsidian Local REST API 桥，供 Brain 与 Agent 读写知识库。
 | 分隔条拖拽 / 键盘调整 / 双击复位 | 已修 | 方向自适应；双击回到 0.38 |
 | 布局持久化 | 已修 | 新键 `panel-layout`，旧键 `layout` 故意忽略 |
 | Brain 行选择 / 状态切换 / 派发 / 写入对话 / 打开 | 已修 | 刷新与用户操作拆成两个状态位 |
+| Brain 项目下拉 | 已修 | 仅在选项内容变化时重建，刷新不再关闭展开的下拉 |
 | 仓库标签切换（多 vault） | 已修 | `#vaults` 不再被误隐藏；点击走 `/obsidian/select` |
 | 全屏 Brain 页 | 可用 | 项目/任务 CRUD、会话同步、派发 |
 | 左侧紧凑 Brain 状态区 | 可用 | 与右栏共用 `createBrainPane` |
@@ -36,6 +37,9 @@ Obsidian Local REST API 桥，供 Brain 与 Agent 读写知识库。
 3. **仓库标签消失**：仓库 HTML 与打包 JS 版本不一致（存在 `#layout-swap` 幽灵引用），
    初始化在空节点上 `addEventListener` 抛错，后续 UI 全部未接线。已重建并同步 8 个文件。
 4. **可观测性**：顶栏新增 `#boot-error` 红条；Brain 区块节点缺失时给出明确提示而不是静默失败。
+5. **项目下拉点不开**：`renderProjects()` 每次渲染都 `replaceChildren` 重建整个 `<select>`，
+   而窗口获得焦点与 10 秒定时刷新都会触发 `render()`，原生下拉刚展开就被销毁。
+   改为按选项签名重建（内容不变则不动 DOM），`value`/`disabled` 也只在变化时写。
 
 ## 验证证据
 
@@ -49,6 +53,8 @@ Obsidian Local REST API 桥，供 Brain 与 Agent 读写知识库。
   - 点仓库标签触发 `/obsidian/select {targetId}`，状态变为 `Connected · notes`；
   - 布局按钮切换 + 拖分隔条，持久化为 `{direction:"row",ratio:0.46}`；
   - 画面点击转成 `surface-input` 指针事件；
+  - 左侧紧凑 Brain（`brain/section.html`）：项目下拉展开 1.2 秒后选项节点保持不变，
+    选择 `vault:test` 后 `settings` 持久化并重新拉取任务；
   - `boot-error` 为空。
 - 安装目录 8 个文件 SHA256 与仓库一致：`package.json`、`panel/index.html`、
   `panel/main.js`、`brain/index.html`、`brain/main.js`、`brain/section.html`、
@@ -60,8 +66,9 @@ Obsidian Local REST API 桥，供 Brain 与 Agent 读写知识库。
 1. `Ctrl+R` 后默认是否为「上下」布局。
 2. 点任务行是否出现操作栏，状态下拉/派发/写入对话/打开是否都能点。
 3. Obsidian 工具条是否出现 `brain / 归纳` 两个仓库标签并可切换。
-4. Obsidian 画面输入：鼠标点击、滚轮、键盘、中文输入法、粘贴、右键。
-5. 顶栏是否出现红色报错条（若出现，把文字发来）。
+4. 左侧「Brain 任务」里的「选择项目」下拉能否展开、选中后任务列表是否跟着切换。
+5. Obsidian 画面输入：鼠标点击、滚轮、键盘、中文输入法、粘贴、右键。
+6. 顶栏是否出现红色报错条（若出现，把文字发来）。
 
 ## 下一轮待办（按优先级）
 

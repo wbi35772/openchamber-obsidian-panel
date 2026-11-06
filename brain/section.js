@@ -2041,37 +2041,46 @@ ${GUEST_UI_LOOK_CSS}`;
       }
       await refresh();
     };
+    let projectOptionsSignature = "";
     const renderProjects = () => {
       const linked = new Set(state.ocProjects.map((project) => project.name));
       const vaultOnly = state.vaultProjects.filter((name) => !linked.has(name));
-      const options = [];
-      const placeholder = el2("option", "", state.ocProjects.length || vaultOnly.length ? "\u9009\u62E9\u9879\u76EE\u2026" : "\u8FD8\u6CA1\u6709\u9879\u76EE");
-      placeholder.value = "";
-      options.push(placeholder);
-      if (state.ocProjects.length) {
-        const group = el2("optgroup");
-        group.label = "OpenChamber \u9879\u76EE";
-        for (const project of state.ocProjects) {
-          const option = el2("option", "", project.name);
-          option.value = `oc:${project.id}`;
-          option.title = project.directory;
-          group.append(option);
+      const signature = JSON.stringify({
+        oc: state.ocProjects.map((project) => [project.id, project.name, project.directory || ""]),
+        vault: vaultOnly
+      });
+      if (signature !== projectOptionsSignature) {
+        projectOptionsSignature = signature;
+        const options = [];
+        const placeholder = el2("option", "", state.ocProjects.length || vaultOnly.length ? "\u9009\u62E9\u9879\u76EE\u2026" : "\u8FD8\u6CA1\u6709\u9879\u76EE");
+        placeholder.value = "";
+        options.push(placeholder);
+        if (state.ocProjects.length) {
+          const group = el2("optgroup");
+          group.label = "OpenChamber \u9879\u76EE";
+          for (const project of state.ocProjects) {
+            const option = el2("option", "", project.name);
+            option.value = `oc:${project.id}`;
+            option.title = project.directory;
+            group.append(option);
+          }
+          options.push(group);
         }
-        options.push(group);
-      }
-      if (vaultOnly.length) {
-        const group = el2("optgroup");
-        group.label = "\u4EC5\u77E5\u8BC6\u5E93";
-        for (const name of vaultOnly) {
-          const option = el2("option", "", name);
-          option.value = `vault:${name}`;
-          group.append(option);
+        if (vaultOnly.length) {
+          const group = el2("optgroup");
+          group.label = "\u4EC5\u77E5\u8BC6\u5E93";
+          for (const name of vaultOnly) {
+            const option = el2("option", "", name);
+            option.value = `vault:${name}`;
+            group.append(option);
+          }
+          options.push(group);
         }
-        options.push(group);
+        nodes.project.replaceChildren(...options);
       }
-      nodes.project.replaceChildren(...options);
-      nodes.project.value = state.ocProjectId ? `oc:${state.ocProjectId}` : state.projectName ? `vault:${state.projectName}` : "";
-      nodes.project.disabled = state.busy;
+      const value = state.ocProjectId ? `oc:${state.ocProjectId}` : state.projectName ? `vault:${state.projectName}` : "";
+      if (nodes.project.value !== value) nodes.project.value = value;
+      if (nodes.project.disabled !== state.busy) nodes.project.disabled = state.busy;
     };
     const emptyBlock = (text, actionLabel, action) => {
       const wrap = el2("div", "empty");

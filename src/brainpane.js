@@ -297,37 +297,47 @@ const bindProject = async () => {
   await refresh();
 };
 
+let projectOptionsSignature = '';
+
 const renderProjects = () => {
   const linked = new Set(state.ocProjects.map((project) => project.name));
   const vaultOnly = state.vaultProjects.filter((name) => !linked.has(name));
-  const options = [];
-  const placeholder = el('option', '', state.ocProjects.length || vaultOnly.length ? '选择项目…' : '还没有项目');
-  placeholder.value = '';
-  options.push(placeholder);
-  if (state.ocProjects.length) {
-    const group = el('optgroup');
-    group.label = 'OpenChamber 项目';
-    for (const project of state.ocProjects) {
-      const option = el('option', '', project.name);
-      option.value = `oc:${project.id}`;
-      option.title = project.directory;
-      group.append(option);
+  const signature = JSON.stringify({
+    oc: state.ocProjects.map((project) => [project.id, project.name, project.directory || '']),
+    vault: vaultOnly,
+  });
+  if (signature !== projectOptionsSignature) {
+    projectOptionsSignature = signature;
+    const options = [];
+    const placeholder = el('option', '', state.ocProjects.length || vaultOnly.length ? '选择项目…' : '还没有项目');
+    placeholder.value = '';
+    options.push(placeholder);
+    if (state.ocProjects.length) {
+      const group = el('optgroup');
+      group.label = 'OpenChamber 项目';
+      for (const project of state.ocProjects) {
+        const option = el('option', '', project.name);
+        option.value = `oc:${project.id}`;
+        option.title = project.directory;
+        group.append(option);
+      }
+      options.push(group);
     }
-    options.push(group);
-  }
-  if (vaultOnly.length) {
-    const group = el('optgroup');
-    group.label = '仅知识库';
-    for (const name of vaultOnly) {
-      const option = el('option', '', name);
-      option.value = `vault:${name}`;
-      group.append(option);
+    if (vaultOnly.length) {
+      const group = el('optgroup');
+      group.label = '仅知识库';
+      for (const name of vaultOnly) {
+        const option = el('option', '', name);
+        option.value = `vault:${name}`;
+        group.append(option);
+      }
+      options.push(group);
     }
-    options.push(group);
+    nodes.project.replaceChildren(...options);
   }
-  nodes.project.replaceChildren(...options);
-  nodes.project.value = state.ocProjectId ? `oc:${state.ocProjectId}` : state.projectName ? `vault:${state.projectName}` : '';
-  nodes.project.disabled = state.busy;
+  const value = state.ocProjectId ? `oc:${state.ocProjectId}` : state.projectName ? `vault:${state.projectName}` : '';
+  if (nodes.project.value !== value) nodes.project.value = value;
+  if (nodes.project.disabled !== state.busy) nodes.project.disabled = state.busy;
 };
 
 const emptyBlock = (text, actionLabel, action) => {
