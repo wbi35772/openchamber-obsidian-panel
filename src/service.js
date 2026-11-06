@@ -274,11 +274,9 @@ const toolSummaryLine = (part) => {
   return text ? `- \`${label}\` ${text}` : `- \`${label}\``;
 };
 
-const renderSessionArchive = (session, messages, { notePath, project } = {}) => {
-  const title = String(session?.title || '未命名会话').trim() || '未命名会话';
-  const stamp = localStamp();
-  const day = stamp.slice(0, 10);
-  const updated = Number(session?.time?.updated) || 0;
+const sessionTitleOf = (session) => String(session?.title || '未命名会话').trim() || '未命名会话';
+
+const buildSessionTurns = (messages) => {
   let messageCount = 0;
   const turns = [];
   let current = null;
@@ -326,37 +324,48 @@ const renderSessionArchive = (session, messages, { notePath, project } = {}) => 
     current.tools.push(...tools);
   }
 
-  const blocks = turns.map((turn) => {
-    const lines = [];
-    if (turn.userText) {
-      lines.push('**User**');
-      const when = archiveTimeLabel(turn.userTime);
-      if (when) lines.push('', `*${when}*`);
-      lines.push('', turn.userText);
+  return { turns, messageCount };
+};
+
+const turnMarkdownBlocks = (turns, { includeTools = true } = {}) => turns.map((turn) => {
+  const lines = [];
+  if (turn.userText) {
+    lines.push('**User**');
+    const when = archiveTimeLabel(turn.userTime);
+    if (when) lines.push('', `*${when}*`);
+    lines.push('', turn.userText);
+  }
+  const assistantText = turn.assistantTexts.join('\n\n');
+  if (assistantText || (includeTools && turn.tools.length > 0)) {
+    if (lines.length > 0) lines.push('');
+    lines.push('**Assistant**');
+    const when = archiveTimeLabel(turn.assistantTime);
+    const variant = turn.variant ? `, thinking: ${turn.variant}` : '';
+    const meta = [when, turn.model ? `(${turn.model}${variant})` : ''].filter(Boolean).join(' ');
+    if (meta) lines.push('', `*${meta}*`);
+    if (assistantText) lines.push('', assistantText);
+    if (includeTools && turn.tools.length > 0) {
+      lines.push(
+        '',
+        '<details>',
+        `<summary>工具调用 ${turn.tools.length} 条</summary>`,
+        '',
+        ...turn.tools.map(toolSummaryLine),
+        '',
+        '</details>',
+      );
     }
-    const assistantText = turn.assistantTexts.join('\n\n');
-    if (assistantText || turn.tools.length > 0) {
-      if (lines.length > 0) lines.push('');
-      lines.push('**Assistant**');
-      const when = archiveTimeLabel(turn.assistantTime);
-      const variant = turn.variant ? `, thinking: ${turn.variant}` : '';
-      const meta = [when, turn.model ? `(${turn.model}${variant})` : ''].filter(Boolean).join(' ');
-      if (meta) lines.push('', `*${meta}*`);
-      if (assistantText) lines.push('', assistantText);
-      if (turn.tools.length > 0) {
-        lines.push(
-          '',
-          '<details>',
-          `<summary>工具调用 ${turn.tools.length} 条</summary>`,
-          '',
-          ...turn.tools.map(toolSummaryLine),
-          '',
-          '</details>',
-        );
-      }
-    }
-    return lines.join('\n');
-  }).filter(Boolean);
+  }
+  return lines.join('\n');
+}).filter(Boolean);
+
+const renderSessionArchive = (session, messages, { notePath, project } = {}) => {
+  const title = sessionTitleOf(session);
+  const stamp = localStamp();
+  const day = stamp.slice(0, 10);
+  const updated = Number(session?.time?.updated) || 0;
+  const { turns, messageCount } = buildSessionTurns(messages);
+  const blocks = turnMarkdownBlocks(turns);
 
   const frontmatter = [
     '---',
@@ -387,6 +396,63 @@ const renderSessionArchive = (session, messages, { notePath, project } = {}) => 
   ].join('\n');
 
   return { content: body, messageCount, updated, day };
+};
+
+const renderSessionMarkdown = (session, turns, { includeTools = true } = {}) => {
+  const title = sessionTitleOf(session);
+  const day = localStamp().slice(0, 10);
+  const blocks = turnMarkdownBlocks(turns, { includeTools });
+  return [
+    `# ${title}`,
+    '',
+    `*Exported on ${day}*`,
+    '',
+    '---',
+    '',
+    blocks.length > 0 ? blocks.join('\n\n---\n\n') : '_这个会话还没有可导出的消息。_',
+    '',
+  ].join('\n');
+};
+
+const renderSessionPlain = (session, turns, { includeTools = false } = {}) => {
+  const title = sessionTitleOf(session);
+  const day = localStamp().slice(0, 10);
+  const lines = [title, `Exported on ${day}`, ''];
+  for (const turn of turns) {
+    if (turn.userText) {
+      const when = archiveTimeLabel(turn.userTime);
+      lines.push(when ? `User (${when})` : 'User', '', turn.userText, '');
+    }
+    const assistantText = turn.assistantTexts.join('\n\n');
+    if (assistantText) {
+      const when = archiveTimeLabel(turn.assistantTime);
+      const meta = [when, turn.model].filter(Boolean).join(' · ');
+      lines.push(meta ? `Assistant (${meta})` : 'Assistant', '', assistantText, '');
+    }
+    if (includeTools && turn.tools.length > 0) {
+      lines.push(...turn.tools.map((part) => toolSummaryLine(part).replace(/`/g, '')), '');
+    }
+    lines.push('---', '');
+  }
+  return `${lines.join('\n').trim()}\n`;
+};
+
+const lastAnswerOf = (turns) => {
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const text = turns[index].assistantTexts.join('\n\n').trim();
+    if (text) return text;
+  }
+  return '';
+};
+
+const lastTurnOf = (turns) => {
+  const turn = turns[turns.length - 1];
+  if (!turn) return '';
+  const lines = [];
+  if (turn.userText) lines.push('**User**', '', turn.userText, '');
+  const text = turn.assistantTexts.join('\n\n').trim();
+  if (text) lines.push('**Assistant**', '', text);
+  return lines.join('\n').trim();
 };
 
 const findSessionArchive = async (rest, folder, sessionId) => {
@@ -637,7 +703,8 @@ a { color: #6aa9ff; }
 
       const vaultPath = stringField(body, 'vaultPath', 1024);
       const notePath = stringField(body, 'notePath', 2048);
-      if (!vaultPath) return text(response, 400, 'vaultPath is required\n');
+      const vaultRequired = url.pathname !== '/obsidian/rest/session/export';
+      if (!vaultPath && vaultRequired) return text(response, 400, 'vaultPath is required\n');
       const client = () => createRestClient(vaultPath);
 
       if (url.pathname === '/obsidian/rest/config') {
@@ -896,6 +963,48 @@ a { color: #6aa9ff; }
             messageCount: rendered.messageCount,
             bytes: Buffer.byteLength(rendered.content, 'utf8'),
             updated: rendered.updated,
+          };
+        });
+      }
+
+      if (url.pathname === '/obsidian/rest/session/export') {
+        const sessionId = stringField(body, 'sessionId', 200);
+        if (!sessionId) return text(response, 400, 'sessionId is required\n');
+        const mode = ['markdown', 'plain', 'last-answer', 'last-turn', 'link', 'id'].includes(body?.mode)
+          ? body.mode
+          : 'markdown';
+        const includeTools = body?.includeTools !== false;
+        return restAction(response, async () => {
+          if (mode === 'id') {
+            return { ok: true, mode, sessionId, text: sessionId, title: sessionId, bytes: sessionId.length };
+          }
+          if (mode === 'link') {
+            const origin = openChamberOrigin();
+            if (!origin) throw new Error('OpenChamber 端口未知，请确认主程序正在运行');
+            const link = `${origin}/?session=${encodeURIComponent(sessionId)}`;
+            return { ok: true, mode, sessionId, text: link, title: sessionId, bytes: link.length };
+          }
+          const session = await readOpenChamberSession(sessionId);
+          if (!session) throw new Error('OpenChamber 里找不到这个会话');
+          const messages = await readOpenChamberMessages(sessionId);
+          const { turns, messageCount } = buildSessionTurns(messages);
+          const title = sessionTitleOf(session);
+          let output = '';
+          if (mode === 'markdown') output = renderSessionMarkdown(session, turns, { includeTools });
+          else if (mode === 'plain') output = renderSessionPlain(session, turns, { includeTools: body?.includeTools === true });
+          else if (mode === 'last-answer') output = lastAnswerOf(turns);
+          else if (mode === 'last-turn') output = lastTurnOf(turns);
+          if (!output.trim()) throw new Error('这个会话还没有可复制的内容');
+          return {
+            ok: true,
+            mode,
+            sessionId,
+            title,
+            text: output,
+            messageCount,
+            turnCount: turns.length,
+            bytes: Buffer.byteLength(output, 'utf8'),
+            updated: Number(session?.time?.updated) || 0,
           };
         });
       }

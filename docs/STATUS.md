@@ -223,3 +223,11 @@ foreach ($f in 'package.json','panel\index.html','panel\main.js','brain\index.ht
 - 归档正文按「用户回合 + 助手回复」分组；助手回复保留正文，并把工具调用折叠进 `<details>`，避免只有一行正文的会话丢失过程记录。
 - 任务卡新增「归档会话 / 更新归档 / 打开归档」；刷新时每 60 秒自动检查已派发任务，会话空闲且有新内容时自动归档，可用 frontmatter `auto_archive: false` 关闭。
 - 已用真实接口和真实 vault 冒烟：2735 条消息、48 个回合、约 451 KB；假宿主验证了自动归档与手动归档两条路径。
+
+## 2026-11-06 会话复制
+
+- 新增 POST /obsidian/rest/session/export：mode 支持 markdown / plain / last-answer / last-turn / link / id，返回剪贴板文本与统计（messageCount、turnCount、bytes）。
+- 任务操作栏新增「复制 ▾」菜单，对齐 OpenChamber 的复制入口：复制会话 ID、复制会话链接、复制会话 Markdown、复制纯文本、复制最后回答、复制最后一轮。
+- 复制走宿主 `clipboard-write`（host.writeClipboard），不可用时回退 navigator.clipboard；复制 Markdown 时保留工具调用，纯文本默认不带工具调用。
+- 导出接口不需要 vaultPath；/obsidian/rest/session/export 是唯一免除 vaultPath 校验的 rest 路由。
+- 已验证：真实会话 ses_e60b87318ffeQlTAaGbNKYWmNI 的 markdown 2879 条消息 / 49 轮 / 480890 字节；plain、last-answer、last-turn、link、id 均返回 200 与预期文本；假宿主面板与左侧 section 均能打开菜单并写入剪贴板。

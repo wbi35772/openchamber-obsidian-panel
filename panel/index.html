@@ -107,6 +107,22 @@
       }
       #brain-app .btn:hover:not(:disabled) { background: var(--oc-hover, rgba(127,127,127,.12)); }
       #brain-app .btn.primary { background: var(--oc-selection, rgba(127,127,127,.2)); border-color: var(--oc-border, rgba(127,127,127,.5)); font-weight: 600; }
+      #brain-app .copy-wrap { position: relative; display: inline-flex; }
+      #brain-app .copy-menu {
+        position: absolute; z-index: 30; left: 0; bottom: calc(100% + 4px);
+        min-width: 168px; padding: 4px; display: flex; flex-direction: column; gap: 1px;
+        border: 1px solid var(--oc-border, rgba(127,127,127,.35)); border-radius: 8px;
+        background: var(--oc-bg, Canvas); color: var(--oc-fg, CanvasText);
+        box-shadow: 0 8px 24px rgba(0,0,0,.28);
+      }
+      #brain-app .copy-menu[hidden] { display: none; }
+      #brain-app .copy-item {
+        display: block; width: 100%; padding: 5px 8px; border: 0; border-radius: 6px;
+        background: transparent; color: inherit; text-align: left; cursor: pointer;
+        font: inherit; font-size: 11px; white-space: nowrap;
+      }
+      #brain-app .copy-item:hover:not(:disabled) { background: var(--oc-hover, rgba(127,127,127,.12)); }
+      #brain-app .copy-item:disabled { cursor: default; opacity: .6; }
       #brain-app #foot { flex: 0 0 auto; padding: 0 8px 6px; font-size: 10px; color: var(--oc-muted, rgba(127,127,127,.9)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       #brain-app .spin { animation: spin 1s linear infinite; }
       @keyframes spin { to { transform: rotate(360deg); } }

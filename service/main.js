@@ -5609,11 +5609,8 @@ var toolSummaryLine = (part) => {
   const text2 = detail ? String(detail).replace(/\s+/g, " ").trim().slice(0, 200) : "";
   return text2 ? `- \`${label}\` ${text2}` : `- \`${label}\``;
 };
-var renderSessionArchive = (session, messages, { notePath, project } = {}) => {
-  const title = String(session?.title || "\u672A\u547D\u540D\u4F1A\u8BDD").trim() || "\u672A\u547D\u540D\u4F1A\u8BDD";
-  const stamp = localStamp();
-  const day = stamp.slice(0, 10);
-  const updated = Number(session?.time?.updated) || 0;
+var sessionTitleOf = (session) => String(session?.title || "\u672A\u547D\u540D\u4F1A\u8BDD").trim() || "\u672A\u547D\u540D\u4F1A\u8BDD";
+var buildSessionTurns = (messages) => {
   let messageCount = 0;
   const turns = [];
   let current = null;
@@ -5654,37 +5651,46 @@ var renderSessionArchive = (session, messages, { notePath, project } = {}) => {
     if (text2) current.assistantTexts.push(text2);
     current.tools.push(...tools);
   }
-  const blocks = turns.map((turn) => {
-    const lines = [];
-    if (turn.userText) {
-      lines.push("**User**");
-      const when = archiveTimeLabel(turn.userTime);
-      if (when) lines.push("", `*${when}*`);
-      lines.push("", turn.userText);
+  return { turns, messageCount };
+};
+var turnMarkdownBlocks = (turns, { includeTools = true } = {}) => turns.map((turn) => {
+  const lines = [];
+  if (turn.userText) {
+    lines.push("**User**");
+    const when = archiveTimeLabel(turn.userTime);
+    if (when) lines.push("", `*${when}*`);
+    lines.push("", turn.userText);
+  }
+  const assistantText = turn.assistantTexts.join("\n\n");
+  if (assistantText || includeTools && turn.tools.length > 0) {
+    if (lines.length > 0) lines.push("");
+    lines.push("**Assistant**");
+    const when = archiveTimeLabel(turn.assistantTime);
+    const variant = turn.variant ? `, thinking: ${turn.variant}` : "";
+    const meta = [when, turn.model ? `(${turn.model}${variant})` : ""].filter(Boolean).join(" ");
+    if (meta) lines.push("", `*${meta}*`);
+    if (assistantText) lines.push("", assistantText);
+    if (includeTools && turn.tools.length > 0) {
+      lines.push(
+        "",
+        "<details>",
+        `<summary>\u5DE5\u5177\u8C03\u7528 ${turn.tools.length} \u6761</summary>`,
+        "",
+        ...turn.tools.map(toolSummaryLine),
+        "",
+        "</details>"
+      );
     }
-    const assistantText = turn.assistantTexts.join("\n\n");
-    if (assistantText || turn.tools.length > 0) {
-      if (lines.length > 0) lines.push("");
-      lines.push("**Assistant**");
-      const when = archiveTimeLabel(turn.assistantTime);
-      const variant = turn.variant ? `, thinking: ${turn.variant}` : "";
-      const meta = [when, turn.model ? `(${turn.model}${variant})` : ""].filter(Boolean).join(" ");
-      if (meta) lines.push("", `*${meta}*`);
-      if (assistantText) lines.push("", assistantText);
-      if (turn.tools.length > 0) {
-        lines.push(
-          "",
-          "<details>",
-          `<summary>\u5DE5\u5177\u8C03\u7528 ${turn.tools.length} \u6761</summary>`,
-          "",
-          ...turn.tools.map(toolSummaryLine),
-          "",
-          "</details>"
-        );
-      }
-    }
-    return lines.join("\n");
-  }).filter(Boolean);
+  }
+  return lines.join("\n");
+}).filter(Boolean);
+var renderSessionArchive = (session, messages, { notePath, project } = {}) => {
+  const title = sessionTitleOf(session);
+  const stamp = localStamp();
+  const day = stamp.slice(0, 10);
+  const updated = Number(session?.time?.updated) || 0;
+  const { turns, messageCount } = buildSessionTurns(messages);
+  const blocks = turnMarkdownBlocks(turns);
   const frontmatter = [
     "---",
     "type: SessionArchive",
@@ -5712,6 +5718,60 @@ var renderSessionArchive = (session, messages, { notePath, project } = {}) => {
     ""
   ].join("\n");
   return { content: body, messageCount, updated, day };
+};
+var renderSessionMarkdown = (session, turns, { includeTools = true } = {}) => {
+  const title = sessionTitleOf(session);
+  const day = localStamp().slice(0, 10);
+  const blocks = turnMarkdownBlocks(turns, { includeTools });
+  return [
+    `# ${title}`,
+    "",
+    `*Exported on ${day}*`,
+    "",
+    "---",
+    "",
+    blocks.length > 0 ? blocks.join("\n\n---\n\n") : "_\u8FD9\u4E2A\u4F1A\u8BDD\u8FD8\u6CA1\u6709\u53EF\u5BFC\u51FA\u7684\u6D88\u606F\u3002_",
+    ""
+  ].join("\n");
+};
+var renderSessionPlain = (session, turns, { includeTools = false } = {}) => {
+  const title = sessionTitleOf(session);
+  const day = localStamp().slice(0, 10);
+  const lines = [title, `Exported on ${day}`, ""];
+  for (const turn of turns) {
+    if (turn.userText) {
+      const when = archiveTimeLabel(turn.userTime);
+      lines.push(when ? `User (${when})` : "User", "", turn.userText, "");
+    }
+    const assistantText = turn.assistantTexts.join("\n\n");
+    if (assistantText) {
+      const when = archiveTimeLabel(turn.assistantTime);
+      const meta = [when, turn.model].filter(Boolean).join(" \xB7 ");
+      lines.push(meta ? `Assistant (${meta})` : "Assistant", "", assistantText, "");
+    }
+    if (includeTools && turn.tools.length > 0) {
+      lines.push(...turn.tools.map((part) => toolSummaryLine(part).replace(/`/g, "")), "");
+    }
+    lines.push("---", "");
+  }
+  return `${lines.join("\n").trim()}
+`;
+};
+var lastAnswerOf = (turns) => {
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const text2 = turns[index].assistantTexts.join("\n\n").trim();
+    if (text2) return text2;
+  }
+  return "";
+};
+var lastTurnOf = (turns) => {
+  const turn = turns[turns.length - 1];
+  if (!turn) return "";
+  const lines = [];
+  if (turn.userText) lines.push("**User**", "", turn.userText, "");
+  const text2 = turn.assistantTexts.join("\n\n").trim();
+  if (text2) lines.push("**Assistant**", "", text2);
+  return lines.join("\n").trim();
 };
 var findSessionArchive = async (rest, folder, sessionId) => {
   let files = [];
@@ -5932,7 +5992,8 @@ a { color: #6aa9ff; }
       }
       const vaultPath = stringField(body, "vaultPath", 1024);
       const notePath = stringField(body, "notePath", 2048);
-      if (!vaultPath) return text(response, 400, "vaultPath is required\n");
+      const vaultRequired = url.pathname !== "/obsidian/rest/session/export";
+      if (!vaultPath && vaultRequired) return text(response, 400, "vaultPath is required\n");
       const client = () => createRestClient(vaultPath);
       if (url.pathname === "/obsidian/rest/config") {
         return restAction(response, async () => {
@@ -6221,6 +6282,45 @@ ${criteriaLines.length ? criteriaLines.join("\n") : "- [ ] _Define the acceptanc
             messageCount: rendered.messageCount,
             bytes: Buffer.byteLength(rendered.content, "utf8"),
             updated: rendered.updated
+          };
+        });
+      }
+      if (url.pathname === "/obsidian/rest/session/export") {
+        const sessionId = stringField(body, "sessionId", 200);
+        if (!sessionId) return text(response, 400, "sessionId is required\n");
+        const mode = ["markdown", "plain", "last-answer", "last-turn", "link", "id"].includes(body?.mode) ? body.mode : "markdown";
+        const includeTools = body?.includeTools !== false;
+        return restAction(response, async () => {
+          if (mode === "id") {
+            return { ok: true, mode, sessionId, text: sessionId, title: sessionId, bytes: sessionId.length };
+          }
+          if (mode === "link") {
+            const origin = openChamberOrigin();
+            if (!origin) throw new Error("OpenChamber \u7AEF\u53E3\u672A\u77E5\uFF0C\u8BF7\u786E\u8BA4\u4E3B\u7A0B\u5E8F\u6B63\u5728\u8FD0\u884C");
+            const link = `${origin}/?session=${encodeURIComponent(sessionId)}`;
+            return { ok: true, mode, sessionId, text: link, title: sessionId, bytes: link.length };
+          }
+          const session = await readOpenChamberSession(sessionId);
+          if (!session) throw new Error("OpenChamber \u91CC\u627E\u4E0D\u5230\u8FD9\u4E2A\u4F1A\u8BDD");
+          const messages = await readOpenChamberMessages(sessionId);
+          const { turns, messageCount } = buildSessionTurns(messages);
+          const title = sessionTitleOf(session);
+          let output = "";
+          if (mode === "markdown") output = renderSessionMarkdown(session, turns, { includeTools });
+          else if (mode === "plain") output = renderSessionPlain(session, turns, { includeTools: body?.includeTools === true });
+          else if (mode === "last-answer") output = lastAnswerOf(turns);
+          else if (mode === "last-turn") output = lastTurnOf(turns);
+          if (!output.trim()) throw new Error("\u8FD9\u4E2A\u4F1A\u8BDD\u8FD8\u6CA1\u6709\u53EF\u590D\u5236\u7684\u5185\u5BB9");
+          return {
+            ok: true,
+            mode,
+            sessionId,
+            title,
+            text: output,
+            messageCount,
+            turnCount: turns.length,
+            bytes: Buffer.byteLength(output, "utf8"),
+            updated: Number(session?.time?.updated) || 0
           };
         });
       }

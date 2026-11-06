@@ -367,6 +367,102 @@ const archiveTask = async (task, { force = true } = {}) => {
   }
 };
 
+const COPY_MODES = [
+  { mode: 'id', label: '复制会话 ID', done: '会话 ID' },
+  { mode: 'link', label: '复制会话链接', done: '会话链接' },
+  { mode: 'markdown', label: '复制会话 Markdown', done: '会话 Markdown' },
+  { mode: 'plain', label: '复制纯文本', done: '纯文本会话' },
+  { mode: 'last-answer', label: '复制最后回答', done: '最后一条回答' },
+  { mode: 'last-turn', label: '复制最后一轮', done: '最后一轮对话' },
+];
+
+const copyToClipboard = async (text) => {
+  if (typeof host?.writeClipboard === 'function') {
+    await host.writeClipboard(text);
+    return;
+  }
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  throw new Error('当前环境不支持写入剪贴板');
+};
+
+const copySession = async (task, mode) => {
+  const sessionId = String(task?.frontmatter?.session_id || '').trim();
+  if (!sessionId || state.busy) return;
+  const entry = COPY_MODES.find((item) => item.mode === mode);
+  state.busy = true;
+  state.error = null;
+  render();
+  try {
+    const result = await rest('session/export', {
+      sessionId,
+      mode,
+      project: state.projectName,
+      includeTools: mode === 'markdown',
+    });
+    await copyToClipboard(String(result?.text || ''));
+    const detail = mode === 'markdown' || mode === 'plain'
+      ? `（${result?.messageCount ?? 0} 条消息 / ${result?.turnCount ?? 0} 轮）`
+      : '';
+    state.activity = `已复制${entry?.done || '会话内容'}${detail}`;
+  } catch (error) {
+    state.error = messageOf(error);
+  } finally {
+    state.busy = false;
+    render();
+  }
+};
+
+const buildCopyMenu = (task, sessionId) => {
+  const wrap = el('div', 'copy-wrap');
+  const button = el('button', 'btn', '复制 ▾');
+  button.type = 'button';
+  button.disabled = state.busy || !sessionId;
+  button.title = sessionId
+    ? '复制会话内容（对齐 OpenChamber 的复制选项）'
+    : '这个任务还没有关联会话，先派发到 Agent';
+  const menu = el('div', 'copy-menu');
+  menu.hidden = true;
+  menu.setAttribute('role', 'menu');
+  let detach = null;
+  const closeMenu = () => {
+    menu.hidden = true;
+    if (detach) {
+      document.removeEventListener('pointerdown', detach, true);
+      detach = null;
+    }
+  };
+  for (const item of COPY_MODES) {
+    const option = el('button', 'copy-item', item.label);
+    option.type = 'button';
+    option.setAttribute('role', 'menuitem');
+    option.addEventListener('click', () => {
+      closeMenu();
+      void copySession(task, item.mode);
+    });
+    menu.append(option);
+  }
+  button.addEventListener('click', (event) => {
+    event.stopPropagation();
+    if (!menu.hidden) {
+      closeMenu();
+      return;
+    }
+    menu.hidden = false;
+    detach = (event) => {
+      if (!wrap.contains(event.target)) closeMenu();
+    };
+    document.addEventListener('pointerdown', detach, true);
+  });
+  wrap.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeMenu();
+  });
+  wrap.append(button, menu);
+  return wrap;
+};
+
 
 const bindProject = async () => {
   if (state.busy || !state.projectName) return;
@@ -595,6 +691,8 @@ const renderActions = () => {
     archiveOpenButton.addEventListener('click', () => void openNote(archivedPath));
   }
 
+  const copyMenu = buildCopyMenu(task, sessionId);
+
   const composeButton = el('button', 'btn', '写入对话');
   composeButton.type = 'button';
   composeButton.disabled = state.busy;
@@ -611,6 +709,7 @@ const renderActions = () => {
     dispatchButton,
     archiveButton,
     ...(archiveOpenButton ? [archiveOpenButton] : []),
+    copyMenu,
     composeButton,
     openButton,
   );

@@ -2112,6 +2112,94 @@ ${GUEST_UI_LOOK_CSS}`;
         render2();
       }
     };
+    const COPY_MODES = [
+      { mode: "id", label: "\u590D\u5236\u4F1A\u8BDD ID", done: "\u4F1A\u8BDD ID" },
+      { mode: "link", label: "\u590D\u5236\u4F1A\u8BDD\u94FE\u63A5", done: "\u4F1A\u8BDD\u94FE\u63A5" },
+      { mode: "markdown", label: "\u590D\u5236\u4F1A\u8BDD Markdown", done: "\u4F1A\u8BDD Markdown" },
+      { mode: "plain", label: "\u590D\u5236\u7EAF\u6587\u672C", done: "\u7EAF\u6587\u672C\u4F1A\u8BDD" },
+      { mode: "last-answer", label: "\u590D\u5236\u6700\u540E\u56DE\u7B54", done: "\u6700\u540E\u4E00\u6761\u56DE\u7B54" },
+      { mode: "last-turn", label: "\u590D\u5236\u6700\u540E\u4E00\u8F6E", done: "\u6700\u540E\u4E00\u8F6E\u5BF9\u8BDD" }
+    ];
+    const copyToClipboard = async (text) => {
+      if (typeof host2?.writeClipboard === "function") {
+        await host2.writeClipboard(text);
+        return;
+      }
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+        return;
+      }
+      throw new Error("\u5F53\u524D\u73AF\u5883\u4E0D\u652F\u6301\u5199\u5165\u526A\u8D34\u677F");
+    };
+    const copySession = async (task, mode) => {
+      const sessionId = String(task?.frontmatter?.session_id || "").trim();
+      if (!sessionId || state.busy) return;
+      const entry = COPY_MODES.find((item) => item.mode === mode);
+      state.busy = true;
+      state.error = null;
+      render2();
+      try {
+        const result = await rest("session/export", {
+          sessionId,
+          mode,
+          project: state.projectName,
+          includeTools: mode === "markdown"
+        });
+        await copyToClipboard(String(result?.text || ""));
+        const detail = mode === "markdown" || mode === "plain" ? `\uFF08${result?.messageCount ?? 0} \u6761\u6D88\u606F / ${result?.turnCount ?? 0} \u8F6E\uFF09` : "";
+        state.activity = `\u5DF2\u590D\u5236${entry?.done || "\u4F1A\u8BDD\u5185\u5BB9"}${detail}`;
+      } catch (error) {
+        state.error = messageOf2(error);
+      } finally {
+        state.busy = false;
+        render2();
+      }
+    };
+    const buildCopyMenu = (task, sessionId) => {
+      const wrap = el2("div", "copy-wrap");
+      const button2 = el2("button", "btn", "\u590D\u5236 \u25BE");
+      button2.type = "button";
+      button2.disabled = state.busy || !sessionId;
+      button2.title = sessionId ? "\u590D\u5236\u4F1A\u8BDD\u5185\u5BB9\uFF08\u5BF9\u9F50 OpenChamber \u7684\u590D\u5236\u9009\u9879\uFF09" : "\u8FD9\u4E2A\u4EFB\u52A1\u8FD8\u6CA1\u6709\u5173\u8054\u4F1A\u8BDD\uFF0C\u5148\u6D3E\u53D1\u5230 Agent";
+      const menu = el2("div", "copy-menu");
+      menu.hidden = true;
+      menu.setAttribute("role", "menu");
+      let detach = null;
+      const closeMenu = () => {
+        menu.hidden = true;
+        if (detach) {
+          document.removeEventListener("pointerdown", detach, true);
+          detach = null;
+        }
+      };
+      for (const item of COPY_MODES) {
+        const option = el2("button", "copy-item", item.label);
+        option.type = "button";
+        option.setAttribute("role", "menuitem");
+        option.addEventListener("click", () => {
+          closeMenu();
+          void copySession(task, item.mode);
+        });
+        menu.append(option);
+      }
+      button2.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (!menu.hidden) {
+          closeMenu();
+          return;
+        }
+        menu.hidden = false;
+        detach = (event2) => {
+          if (!wrap.contains(event2.target)) closeMenu();
+        };
+        document.addEventListener("pointerdown", detach, true);
+      });
+      wrap.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closeMenu();
+      });
+      wrap.append(button2, menu);
+      return wrap;
+    };
     const bindProject = async () => {
       if (state.busy || !state.projectName) return;
       state.busy = true;
@@ -2322,6 +2410,7 @@ ${GUEST_UI_LOOK_CSS}`;
         archiveOpenButton.disabled = state.busy;
         archiveOpenButton.addEventListener("click", () => void openNote(archivedPath));
       }
+      const copyMenu = buildCopyMenu(task, sessionId);
       const composeButton = el2("button", "btn", "\u5199\u5165\u5BF9\u8BDD");
       composeButton.type = "button";
       composeButton.disabled = state.busy;
@@ -2336,6 +2425,7 @@ ${GUEST_UI_LOOK_CSS}`;
         dispatchButton,
         archiveButton,
         ...archiveOpenButton ? [archiveOpenButton] : [],
+        copyMenu,
         composeButton,
         openButton
       );
