@@ -226,11 +226,10 @@ const loadProjects = async () => {
   if (state.freshOcProject && !state.ocProjects.some((project) => project.id === state.freshOcProject.id)) {
     state.ocProjects.push(state.freshOcProject);
   }
-  if (state.freshOcProject && state.ocProjects.some((project) => project.id === state.freshOcProject.id)) {
-    state.freshOcProject = null;
+  if (state.projectName && !state.vaultProjects.includes(state.projectName)) {
+    state.vaultProjects.push(state.projectName);
   }
   resolveProject();
-  if (state.projectName && !state.vaultProjects.includes(state.projectName)) state.vaultProjects.push(state.projectName);
 };
 
 const loadTasks = async () => {
@@ -367,6 +366,76 @@ const emptyBlock = (text, actionLabel, action) => {
   return wrap;
 };
 
+const openTaskForm = () => {
+  if (state.busy) return;
+  state.taskCreate = true;
+  state.taskCreateFocus = true;
+  render();
+};
+
+const buildTaskForm = () => {
+  const form = el('div', 'empty');
+  const input = el('input');
+  input.type = 'text';
+  input.placeholder = '任务标题';
+  input.style.cssText = inputStyle;
+  const ok = el('button', 'btn primary', '创建');
+  ok.type = 'button';
+  const cancel = el('button', 'btn', '取消');
+  cancel.type = 'button';
+  const submit = async () => {
+    const title = input.value.trim();
+    if (!title || state.busy) return;
+    state.busy = true;
+    state.error = null;
+    render();
+    try {
+      await rest('task/create', { folder: taskFolder(), title, project: state.projectName });
+      state.taskCreate = false;
+      state.taskCreateFocus = false;
+      await loadTasks();
+      state.activity = `已创建任务 ${title}`;
+    } catch (error) {
+      state.error = messageOf(error);
+    } finally {
+      state.busy = false;
+      render();
+    }
+  };
+  ok.addEventListener('click', () => void submit());
+  cancel.addEventListener('click', () => {
+    state.taskCreate = false;
+    render();
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void submit();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      state.taskCreate = false;
+      render();
+    }
+  });
+  form.append(input, ok, cancel);
+  if (state.taskCreateFocus) {
+    state.taskCreateFocus = false;
+    try {
+      input.focus({ preventScroll: true });
+    } catch {}
+  }
+  return form;
+};
+
+const buildAddTask = () => {
+  const wrap = el('div', 'task-add');
+  const button = el('button', 'btn', '＋ 新建任务');
+  button.type = 'button';
+  button.addEventListener('click', openTaskForm);
+  wrap.append(button);
+  return wrap;
+};
+
 const renderList = () => {
   if (!state.projectName) {
     nodes.list.replaceChildren(emptyBlock('还没有可用的项目。请在 OpenChamber 里添加项目，或在完整 Brain 页面新建知识库项目。'));
@@ -376,83 +445,29 @@ const renderList = () => {
     nodes.list.replaceChildren(emptyBlock(`${projectFolder()} 还没有初始化。`, '初始化项目', () => void bindProject()));
     return;
   }
-  if (!state.tasks.length) {
-    if (state.taskCreate) {
-      const form = el('div', 'empty');
-      const input = el('input');
-      input.type = 'text';
-      input.placeholder = '任务标题';
-      input.style.cssText = inputStyle;
-      const ok = el('button', 'btn primary', '创建');
-      ok.type = 'button';
-      const cancel = el('button', 'btn', '取消');
-      cancel.type = 'button';
-      const submit = async () => {
-        const title = input.value.trim();
-        if (!title || state.busy) return;
-        state.busy = true;
-        state.error = null;
-        render();
-        try {
-          await rest('task/create', { folder: taskFolder(), title, project: state.projectName });
-          state.taskCreate = false;
-          state.taskCreateFocus = false;
-          await loadTasks();
-          state.activity = `已创建任务 ${title}`;
-        } catch (error) {
-          state.error = messageOf(error);
-        } finally {
-          state.busy = false;
-          render();
-        }
-      };
-      ok.addEventListener('click', () => void submit());
-      cancel.addEventListener('click', () => {
-        state.taskCreate = false;
-        render();
-      });
-      input.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          void submit();
-        } else if (event.key === 'Escape') {
-          event.preventDefault();
-          state.taskCreate = false;
-          render();
-        }
-      });
-      form.append(input, ok, cancel);
-      nodes.list.replaceChildren(form);
-      if (state.taskCreateFocus) {
-        state.taskCreateFocus = false;
-        try {
-          input.focus({ preventScroll: true });
-        } catch {}
-      }
-      return;
-    }
-    nodes.list.replaceChildren(emptyBlock('这个项目还没有任务。', '＋ 新建任务', () => {
-      state.taskCreate = true;
-      state.taskCreateFocus = true;
-      render();
+  const parts = [];
+  if (state.taskCreate) parts.push(buildTaskForm());
+  if (state.tasks.length) {
+    parts.push(...state.tasks.map((task) => {
+      const status = taskStatus(task);
+      const row = el('button', 'row');
+      row.type = 'button';
+      row.dataset.path = task.path;
+      row.setAttribute('aria-selected', String(task.path === state.selectedPath));
+      const dot = el('span', 'dot');
+      dot.dataset.status = status;
+      row.append(
+        dot,
+        el('span', 'title', taskTitle(task)),
+        el('span', 'prio', String(task?.frontmatter?.priority || 'P1')),
+      );
+      return row;
     }));
-    return;
+    if (!state.taskCreate) parts.push(buildAddTask());
+  } else if (!state.taskCreate) {
+    parts.push(emptyBlock('这个项目还没有任务。', '＋ 新建任务', openTaskForm));
   }
-  nodes.list.replaceChildren(...state.tasks.map((task) => {
-    const status = taskStatus(task);
-    const row = el('button', 'row');
-    row.type = 'button';
-    row.dataset.path = task.path;
-    row.setAttribute('aria-selected', String(task.path === state.selectedPath));
-    const dot = el('span', 'dot');
-    dot.dataset.status = status;
-    row.append(
-      dot,
-      el('span', 'title', taskTitle(task)),
-      el('span', 'prio', String(task?.frontmatter?.priority || 'P1')),
-    );
-    return row;
-  }));
+  nodes.list.replaceChildren(...parts);
 };
 
 const renderActions = () => {

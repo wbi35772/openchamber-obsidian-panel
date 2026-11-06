@@ -208,3 +208,9 @@ foreach ($f in 'package.json','panel\index.html','panel\main.js','brain\index.ht
 2. `GET /api/guests/obsidian-panel/service/status` 应为 `{"status":"ready"}`。
 3. 若 `stopped`：`Ctrl+R`；仍不行再查服务进程与端口占用。
 4. 面板顶栏有红条时，优先读其中的错误文本，再看 `panel/main.js` 是否与 HTML 同版本。
+
+## 2026-11-06 变更记录
+
+- 左侧 Brain 项目下拉新增「＋ 新建项目…」，可填名称与目录；创建后调用 project/register 写入 OpenChamber 设置，并自动选中、跨定时刷新保持选择。
+- 任务区支持连续新建：有任务时底部保留「＋ 新建任务」，空任务区也能直接建任务。
+- 新建项目要出现在 OpenChamber 左侧项目列表，仍需 Ctrl+R（宿主不广播设置变更，见上文）。

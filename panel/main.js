@@ -1978,11 +1978,10 @@ ${GUEST_UI_LOOK_CSS}`;
       if (state.freshOcProject && !state.ocProjects.some((project) => project.id === state.freshOcProject.id)) {
         state.ocProjects.push(state.freshOcProject);
       }
-      if (state.freshOcProject && state.ocProjects.some((project) => project.id === state.freshOcProject.id)) {
-        state.freshOcProject = null;
+      if (state.projectName && !state.vaultProjects.includes(state.projectName)) {
+        state.vaultProjects.push(state.projectName);
       }
       resolveProject();
-      if (state.projectName && !state.vaultProjects.includes(state.projectName)) state.vaultProjects.push(state.projectName);
     };
     const loadTasks = async () => {
       if (!state.projectName || !state.bound) {
@@ -2109,6 +2108,74 @@ ${GUEST_UI_LOOK_CSS}`;
       }
       return wrap;
     };
+    const openTaskForm = () => {
+      if (state.busy) return;
+      state.taskCreate = true;
+      state.taskCreateFocus = true;
+      render2();
+    };
+    const buildTaskForm = () => {
+      const form = el2("div", "empty");
+      const input = el2("input");
+      input.type = "text";
+      input.placeholder = "\u4EFB\u52A1\u6807\u9898";
+      input.style.cssText = inputStyle;
+      const ok = el2("button", "btn primary", "\u521B\u5EFA");
+      ok.type = "button";
+      const cancel = el2("button", "btn", "\u53D6\u6D88");
+      cancel.type = "button";
+      const submit = async () => {
+        const title = input.value.trim();
+        if (!title || state.busy) return;
+        state.busy = true;
+        state.error = null;
+        render2();
+        try {
+          await rest("task/create", { folder: taskFolder(), title, project: state.projectName });
+          state.taskCreate = false;
+          state.taskCreateFocus = false;
+          await loadTasks();
+          state.activity = `\u5DF2\u521B\u5EFA\u4EFB\u52A1 ${title}`;
+        } catch (error) {
+          state.error = messageOf2(error);
+        } finally {
+          state.busy = false;
+          render2();
+        }
+      };
+      ok.addEventListener("click", () => void submit());
+      cancel.addEventListener("click", () => {
+        state.taskCreate = false;
+        render2();
+      });
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          void submit();
+        } else if (event.key === "Escape") {
+          event.preventDefault();
+          state.taskCreate = false;
+          render2();
+        }
+      });
+      form.append(input, ok, cancel);
+      if (state.taskCreateFocus) {
+        state.taskCreateFocus = false;
+        try {
+          input.focus({ preventScroll: true });
+        } catch {
+        }
+      }
+      return form;
+    };
+    const buildAddTask = () => {
+      const wrap = el2("div", "task-add");
+      const button2 = el2("button", "btn", "\uFF0B \u65B0\u5EFA\u4EFB\u52A1");
+      button2.type = "button";
+      button2.addEventListener("click", openTaskForm);
+      wrap.append(button2);
+      return wrap;
+    };
     const renderList = () => {
       if (!state.projectName) {
         nodes.list.replaceChildren(emptyBlock("\u8FD8\u6CA1\u6709\u53EF\u7528\u7684\u9879\u76EE\u3002\u8BF7\u5728 OpenChamber \u91CC\u6DFB\u52A0\u9879\u76EE\uFF0C\u6216\u5728\u5B8C\u6574 Brain \u9875\u9762\u65B0\u5EFA\u77E5\u8BC6\u5E93\u9879\u76EE\u3002"));
@@ -2118,84 +2185,29 @@ ${GUEST_UI_LOOK_CSS}`;
         nodes.list.replaceChildren(emptyBlock(`${projectFolder()} \u8FD8\u6CA1\u6709\u521D\u59CB\u5316\u3002`, "\u521D\u59CB\u5316\u9879\u76EE", () => void bindProject()));
         return;
       }
-      if (!state.tasks.length) {
-        if (state.taskCreate) {
-          const form = el2("div", "empty");
-          const input = el2("input");
-          input.type = "text";
-          input.placeholder = "\u4EFB\u52A1\u6807\u9898";
-          input.style.cssText = inputStyle;
-          const ok = el2("button", "btn primary", "\u521B\u5EFA");
-          ok.type = "button";
-          const cancel = el2("button", "btn", "\u53D6\u6D88");
-          cancel.type = "button";
-          const submit = async () => {
-            const title = input.value.trim();
-            if (!title || state.busy) return;
-            state.busy = true;
-            state.error = null;
-            render2();
-            try {
-              await rest("task/create", { folder: taskFolder(), title, project: state.projectName });
-              state.taskCreate = false;
-              state.taskCreateFocus = false;
-              await loadTasks();
-              state.activity = `\u5DF2\u521B\u5EFA\u4EFB\u52A1 ${title}`;
-            } catch (error) {
-              state.error = messageOf2(error);
-            } finally {
-              state.busy = false;
-              render2();
-            }
-          };
-          ok.addEventListener("click", () => void submit());
-          cancel.addEventListener("click", () => {
-            state.taskCreate = false;
-            render2();
-          });
-          input.addEventListener("keydown", (event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              void submit();
-            } else if (event.key === "Escape") {
-              event.preventDefault();
-              state.taskCreate = false;
-              render2();
-            }
-          });
-          form.append(input, ok, cancel);
-          nodes.list.replaceChildren(form);
-          if (state.taskCreateFocus) {
-            state.taskCreateFocus = false;
-            try {
-              input.focus({ preventScroll: true });
-            } catch {
-            }
-          }
-          return;
-        }
-        nodes.list.replaceChildren(emptyBlock("\u8FD9\u4E2A\u9879\u76EE\u8FD8\u6CA1\u6709\u4EFB\u52A1\u3002", "\uFF0B \u65B0\u5EFA\u4EFB\u52A1", () => {
-          state.taskCreate = true;
-          state.taskCreateFocus = true;
-          render2();
+      const parts = [];
+      if (state.taskCreate) parts.push(buildTaskForm());
+      if (state.tasks.length) {
+        parts.push(...state.tasks.map((task) => {
+          const status2 = taskStatus(task);
+          const row = el2("button", "row");
+          row.type = "button";
+          row.dataset.path = task.path;
+          row.setAttribute("aria-selected", String(task.path === state.selectedPath));
+          const dot = el2("span", "dot");
+          dot.dataset.status = status2;
+          row.append(
+            dot,
+            el2("span", "title", taskTitle(task)),
+            el2("span", "prio", String(task?.frontmatter?.priority || "P1"))
+          );
+          return row;
         }));
-        return;
+        if (!state.taskCreate) parts.push(buildAddTask());
+      } else if (!state.taskCreate) {
+        parts.push(emptyBlock("\u8FD9\u4E2A\u9879\u76EE\u8FD8\u6CA1\u6709\u4EFB\u52A1\u3002", "\uFF0B \u65B0\u5EFA\u4EFB\u52A1", openTaskForm));
       }
-      nodes.list.replaceChildren(...state.tasks.map((task) => {
-        const status2 = taskStatus(task);
-        const row = el2("button", "row");
-        row.type = "button";
-        row.dataset.path = task.path;
-        row.setAttribute("aria-selected", String(task.path === state.selectedPath));
-        const dot = el2("span", "dot");
-        dot.dataset.status = status2;
-        row.append(
-          dot,
-          el2("span", "title", taskTitle(task)),
-          el2("span", "prio", String(task?.frontmatter?.priority || "P1"))
-        );
-        return row;
-      }));
+      nodes.list.replaceChildren(...parts);
     };
     const renderActions = () => {
       const task = state.tasks.find((item) => item.path === state.selectedPath);
