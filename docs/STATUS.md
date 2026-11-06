@@ -216,3 +216,10 @@ foreach ($f in 'package.json','panel\index.html','panel\main.js','brain\index.ht
 - 新建项目要出现在 OpenChamber 左侧项目列表，仍需 Ctrl+R（宿主不广播设置变更，见上文）。
 
 - 2026-11-06：manifest 增加 contributes.capabilities ["sessions","prompt"]，并向宿主授予 prompt/sessions/service；修复「派发到 Agent」报 capability 未授权。
+
+## 2026-11-06 会话归档
+
+- 新增 POST /obsidian/rest/session/archive：按 OpenChamber 导出格式拉取会话消息，写入 `会话记录/<项目>/<标题>-<日期>.md`，并把 archive_path、archived_at、session_updated 回写到任务卡。
+- 归档正文按「用户回合 + 助手回复」分组；助手回复保留正文，并把工具调用折叠进 `<details>`，避免只有一行正文的会话丢失过程记录。
+- 任务卡新增「归档会话 / 更新归档 / 打开归档」；刷新时每 60 秒自动检查已派发任务，会话空闲且有新内容时自动归档，可用 frontmatter `auto_archive: false` 关闭。
+- 已用真实接口和真实 vault 冒烟：2735 条消息、48 个回合、约 451 KB；假宿主验证了自动归档与手动归档两条路径。

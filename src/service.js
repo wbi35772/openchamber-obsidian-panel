@@ -203,6 +203,216 @@ const slugTitle = (title) => String(title ?? '')
   .replace(/^-+|-+$/g, '')
   .slice(0, 80) || 'task';
 
+const safeFolderPath = (value) => String(value ?? '')
+  .replace(/\\/g, '/')
+  .split('/')
+  .map((part) => part.trim())
+  .filter((part) => part && part !== '.' && part !== '..')
+  .join('/');
+
+const fetchOpenChamberJson = async (pathname) => {
+  const origin = openChamberOrigin();
+  if (!origin) throw new Error('OpenChamber 端口未知，请确认主程序正在运行');
+  const response = await fetch(`${origin}${pathname}`, {
+    headers: { accept: 'application/json' },
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!response.ok) throw new Error(`OpenChamber 接口返回 ${response.status}：${pathname}`);
+  return response.json();
+};
+
+const readOpenChamberSession = async (sessionId) => {
+  const result = await fetchOpenChamberJson(`/api/session/${encodeURIComponent(sessionId)}`);
+  return result?.data ?? result ?? null;
+};
+
+const readOpenChamberMessages = async (sessionId) => {
+  const messages = [];
+  let cursor = '';
+  for (let page = 0; page < 40; page += 1) {
+    const query = new URLSearchParams({ limit: '200' });
+    if (cursor) query.set('cursor', cursor);
+    else query.set('order', 'asc');
+    const result = await fetchOpenChamberJson(`/api/session/${encodeURIComponent(sessionId)}/message?${query.toString()}`);
+    const batch = Array.isArray(result?.data) ? result.data : [];
+    messages.push(...batch);
+    const next = typeof result?.cursor?.next === 'string' ? result.cursor.next : '';
+    if (!next || batch.length === 0) break;
+    cursor = next;
+  }
+  return messages;
+};
+
+const archiveTimeLabel = (value) => {
+  const millis = Number(value);
+  if (!Number.isFinite(millis) || millis <= 0) return '';
+  const date = new Date(millis);
+  const pad = (part) => String(part).padStart(2, '0');
+  const month = date.toLocaleString('en-US', { month: 'short' });
+  return `${month} ${date.getDate()}, ${date.getFullYear()}, ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
+const messageText = (message) => {
+  const parts = Array.isArray(message?.content) ? message.content : [];
+  const text = parts
+    .filter((part) => part?.type === 'text' && typeof part.text === 'string')
+    .map((part) => part.text.trim())
+    .filter(Boolean)
+    .join('\n\n');
+  if (text) return text;
+  return typeof message?.text === 'string' ? message.text.trim() : '';
+};
+
+const toolSummaryLine = (part) => {
+  const state = part?.state && typeof part.state === 'object' ? part.state : {};
+  const input = state.input && typeof state.input === 'object' ? state.input : {};
+  const detail = [input.command, input.description, input.filePath, input.path, input.pattern, input.url, state.title]
+    .find((value) => typeof value === 'string' && value.trim());
+  const status = typeof state.status === 'string' ? state.status : '';
+  const label = [part?.name || 'tool', status].filter(Boolean).join(' · ');
+  const text = detail ? String(detail).replace(/\s+/g, ' ').trim().slice(0, 200) : '';
+  return text ? `- \`${label}\` ${text}` : `- \`${label}\``;
+};
+
+const renderSessionArchive = (session, messages, { notePath, project } = {}) => {
+  const title = String(session?.title || '未命名会话').trim() || '未命名会话';
+  const stamp = localStamp();
+  const day = stamp.slice(0, 10);
+  const updated = Number(session?.time?.updated) || 0;
+  let messageCount = 0;
+  const turns = [];
+  let current = null;
+
+  const startTurn = (message) => {
+    current = {
+      userText: '',
+      userTime: Number(message?.time?.created) || 0,
+      assistantTexts: [],
+      assistantTime: 0,
+      model: '',
+      variant: '',
+      tools: [],
+    };
+    turns.push(current);
+  };
+
+  for (const message of messages) {
+    if (message?.type === 'user') {
+      const text = messageText(message);
+      if (!text) continue;
+      messageCount += 1;
+      if (!current || current.assistantTexts.length > 0 || current.tools.length > 0) startTurn(message);
+      else if (!current.userTime) current.userTime = Number(message?.time?.created) || 0;
+      current.userText = [current.userText, text].filter(Boolean).join('\n\n');
+      continue;
+    }
+    if (message?.type !== 'assistant') continue;
+    const text = messageText(message);
+    const tools = Array.isArray(message.content)
+      ? message.content.filter((part) => part?.type === 'tool')
+      : [];
+    if (!text && tools.length === 0) continue;
+    messageCount += 1;
+    if (!current) startTurn(null);
+    if (!current.assistantTime) {
+      current.assistantTime = Number(message?.time?.created || message?.time?.completed) || 0;
+      const model = message?.model && typeof message.model === 'object'
+        ? [message.model.providerID, message.model.id].filter(Boolean).join('/')
+        : '';
+      current.model = model;
+      current.variant = message?.model?.variant || '';
+    }
+    if (text) current.assistantTexts.push(text);
+    current.tools.push(...tools);
+  }
+
+  const blocks = turns.map((turn) => {
+    const lines = [];
+    if (turn.userText) {
+      lines.push('**User**');
+      const when = archiveTimeLabel(turn.userTime);
+      if (when) lines.push('', `*${when}*`);
+      lines.push('', turn.userText);
+    }
+    const assistantText = turn.assistantTexts.join('\n\n');
+    if (assistantText || turn.tools.length > 0) {
+      if (lines.length > 0) lines.push('');
+      lines.push('**Assistant**');
+      const when = archiveTimeLabel(turn.assistantTime);
+      const variant = turn.variant ? `, thinking: ${turn.variant}` : '';
+      const meta = [when, turn.model ? `(${turn.model}${variant})` : ''].filter(Boolean).join(' ');
+      if (meta) lines.push('', `*${meta}*`);
+      if (assistantText) lines.push('', assistantText);
+      if (turn.tools.length > 0) {
+        lines.push(
+          '',
+          '<details>',
+          `<summary>工具调用 ${turn.tools.length} 条</summary>`,
+          '',
+          ...turn.tools.map(toolSummaryLine),
+          '',
+          '</details>',
+        );
+      }
+    }
+    return lines.join('\n');
+  }).filter(Boolean);
+
+  const frontmatter = [
+    '---',
+    'type: SessionArchive',
+    `session_id: ${yamlString(session?.id || '')}`,
+    `session_title: ${yamlString(title)}`,
+    `project: ${yamlString(project || '')}`,
+    'source: openchamber',
+    `archived_at: ${yamlString(stamp)}`,
+    `session_updated: ${updated}`,
+    `message_count: ${messageCount}`,
+    `turn_count: ${turns.length}`,
+    ...(notePath ? [`task_path: ${yamlString(notePath)}`] : []),
+    '---',
+  ].join('\n');
+
+  const body = [
+    frontmatter,
+    '',
+    `# ${title}`,
+    '',
+    `*Exported on ${day}*`,
+    '',
+    '---',
+    '',
+    blocks.length > 0 ? blocks.join('\n\n---\n\n') : '_这个会话还没有可导出的消息。_',
+    '',
+  ].join('\n');
+
+  return { content: body, messageCount, updated, day };
+};
+
+const findSessionArchive = async (rest, folder, sessionId) => {
+  let files = [];
+  try {
+    files = await rest.listMarkdown(folder, false);
+  } catch (error) {
+    if (error?.status !== 404) throw error;
+    return '';
+  }
+  for (let index = 0; index < files.length; index += 8) {
+    const batch = files.slice(index, index + 8);
+    const found = await Promise.all(batch.map(async (file) => {
+      try {
+        const note = await rest.getNote(file.path);
+        return note?.frontmatter?.session_id === sessionId ? file.path : '';
+      } catch {
+        return '';
+      }
+    }));
+    const hit = found.find(Boolean);
+    if (hit) return hit;
+  }
+  return '';
+};
+
 export const createService = ({ runtime, token, port = 0 }) => {
   if (!runtime?.surfaceFrame || !runtime?.close) throw new Error('createService requires an Obsidian runtime');
   if (typeof token !== 'string' || token.length === 0) throw new Error('createService requires a bearer token');
@@ -619,6 +829,73 @@ a { color: #6aa9ff; }
             ok: true,
             ...result,
             task: { path: target, title, task_id: taskId, project, status: 'todo', priority, assigned_agent: agent, session_id: sessionId, session_title: sessionTitle },
+          };
+        });
+      }
+
+      if (url.pathname === '/obsidian/rest/session/archive') {
+        const sessionId = stringField(body, 'sessionId', 200);
+        if (!sessionId) return text(response, 400, 'sessionId is required\n');
+        const project = stringField(body, 'project', 120);
+        const folder = safeFolderPath(stringField(body, 'folder', 512) || `会话记录/${project || '未归类'}`);
+        if (!folder) return text(response, 400, 'folder is required\n');
+        const taskPath = stringField(body, 'notePath', 2048);
+        const auto = body?.auto === true;
+        const force = body?.force === true;
+        return restAction(response, async () => {
+          const rest = client();
+          const session = await readOpenChamberSession(sessionId);
+          if (!session) throw new Error('OpenChamber 里找不到这个会话');
+          const updated = Number(session?.time?.updated) || 0;
+          const idle = Number(session?.time?.idle) || 0;
+          if (auto && (!idle || updated > idle)) {
+            return { ok: true, skipped: 'busy', sessionId, updated };
+          }
+          let archivePath = await findSessionArchive(rest, folder, sessionId);
+          if (archivePath && !force) {
+            const existing = await rest.getNote(archivePath).catch(() => null);
+            const saved = Number(existing?.frontmatter?.session_updated) || 0;
+            if (saved > 0 && saved >= updated) {
+              return { ok: true, skipped: 'unchanged', path: archivePath, sessionId, updated };
+            }
+          }
+          const messages = await readOpenChamberMessages(sessionId);
+          const title = String(session?.title || '').trim() || '未命名会话';
+          const rendered = renderSessionArchive(session, messages, { notePath: taskPath, project });
+          if (auto && rendered.messageCount === 0) {
+            return { ok: true, skipped: 'empty', sessionId, updated };
+          }
+          const day = rendered.day;
+          let target = archivePath;
+          if (!target) {
+            const base = `${folder}/${slugTitle(title)}-${day}.md`;
+            target = base;
+            for (let suffix = 2; suffix < 50; suffix += 1) {
+              const existing = await rest.getNote(target).catch((error) => {
+                if (error?.status === 404) return null;
+                throw error;
+              });
+              if (!existing) break;
+              if (existing?.frontmatter?.session_id === sessionId) break;
+              target = `${folder}/${slugTitle(title)}-${day}-${suffix}.md`;
+            }
+          }
+          await rest.writeNote(target, rendered.content);
+          if (taskPath) {
+            const stamp = localStamp();
+            await rest.patchFrontmatter(taskPath, 'archive_path', target);
+            await rest.patchFrontmatter(taskPath, 'archived_at', stamp);
+            await rest.patchFrontmatter(taskPath, 'session_updated', rendered.updated);
+          }
+          return {
+            ok: true,
+            path: target,
+            sessionId,
+            title,
+            created: !archivePath,
+            messageCount: rendered.messageCount,
+            bytes: Buffer.byteLength(rendered.content, 'utf8'),
+            updated: rendered.updated,
           };
         });
       }

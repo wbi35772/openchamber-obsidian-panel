@@ -1874,6 +1874,7 @@ ${GUEST_UI_LOOK_CSS}`;
     };
     const projectFolder = () => state.projectName ? `${state.baseFolder}/${state.projectName}` : "";
     const taskFolder = () => projectFolder() ? `${projectFolder()}/\u4EFB\u52A1` : "";
+    const archiveFolder = () => `\u4F1A\u8BDD\u8BB0\u5F55/${state.projectName || "\u672A\u5F52\u7C7B"}`;
     const taskStatus = (task) => {
       const value = String(task?.frontmatter?.status || "");
       return STATUSES.includes(value) ? value : "todo";
@@ -2031,6 +2032,84 @@ ${GUEST_UI_LOOK_CSS}`;
           state.rerun = false;
           void refresh2();
         }
+        void autoArchive();
+      }
+    };
+    let autoArchiveRunning = false;
+    let lastAutoArchiveAt = 0;
+    const autoArchive = async () => {
+      if (autoArchiveRunning || state.busy || state.refreshing || !state.bound) return;
+      if (Date.now() - lastAutoArchiveAt < 6e4) return;
+      const candidates = state.tasks.filter((task) => {
+        const frontmatter = task?.frontmatter || {};
+        if (!String(frontmatter.session_id || "").trim()) return false;
+        return !(frontmatter.auto_archive === false || frontmatter.auto_archive === "off");
+      });
+      if (!candidates.length) return;
+      lastAutoArchiveAt = Date.now();
+      autoArchiveRunning = true;
+      let changed = false;
+      try {
+        for (const task of candidates) {
+          try {
+            const result = await rest("session/archive", {
+              sessionId: String(task.frontmatter.session_id).trim(),
+              notePath: task.path,
+              project: state.projectName,
+              folder: archiveFolder(),
+              auto: true
+            });
+            if (result && !result.skipped && result.path) {
+              changed = true;
+              state.activity = `\u5DF2\u81EA\u52A8\u5F52\u6863 ${taskTitle(task)}`;
+              state.notice = `\u4F1A\u8BDD\u8BB0\u5F55\u5DF2\u5199\u5165 ${result.path}`;
+            }
+          } catch {
+          }
+        }
+      } finally {
+        autoArchiveRunning = false;
+      }
+      if (changed) {
+        try {
+          await loadTasks();
+        } catch {
+        }
+        render2();
+      }
+    };
+    const archiveTask = async (task, { force = true } = {}) => {
+      const sessionId = String(task?.frontmatter?.session_id || "").trim();
+      if (!sessionId) {
+        state.error = "\u8FD9\u4E2A\u4EFB\u52A1\u8FD8\u6CA1\u6709\u5173\u8054\u4F1A\u8BDD\uFF0C\u8BF7\u5148\u70B9\u300C\u6D3E\u53D1\u5230 Agent\u300D\u3002";
+        render2();
+        return;
+      }
+      if (state.busy) return;
+      state.busy = true;
+      state.error = null;
+      render2();
+      try {
+        const result = await rest("session/archive", {
+          sessionId,
+          notePath: task.path,
+          project: state.projectName,
+          folder: archiveFolder(),
+          force
+        });
+        if (result?.skipped) {
+          state.activity = `\u4F1A\u8BDD\u6CA1\u6709\u65B0\u5185\u5BB9\uFF08${result.path || "\u672A\u5199\u5165"}\uFF09`;
+          if (result.path) state.notice = `\u4F1A\u8BDD\u8BB0\u5F55\uFF1A${result.path}`;
+        } else {
+          state.activity = `\u5DF2\u5F52\u6863 ${result?.messageCount ?? 0} \u6761\u6D88\u606F`;
+          if (result?.path) state.notice = `\u4F1A\u8BDD\u8BB0\u5F55\u5DF2\u5199\u5165 ${result.path}`;
+          await loadTasks();
+        }
+      } catch (error) {
+        state.error = messageOf2(error);
+      } finally {
+        state.busy = false;
+        render2();
       }
     };
     const bindProject = async () => {
@@ -2230,6 +2309,19 @@ ${GUEST_UI_LOOK_CSS}`;
       dispatchButton.disabled = state.busy;
       dispatchButton.title = state.ocProjectId ? `\u5728 ${state.ocProjectName} \u65B0\u5EFA\u4F1A\u8BDD\u5E76\u6253\u5F00` : "\u65B0\u5EFA\u4F1A\u8BDD\uFF1B\u8FD9\u4E2A\u77E5\u8BC6\u5E93\u9879\u76EE\u6CA1\u6709\u5339\u914D\u7684 OpenChamber \u9879\u76EE\uFF0C\u4F1A\u5728\u5F53\u524D\u76EE\u5F55\u6253\u5F00";
       dispatchButton.addEventListener("click", () => void dispatch(task));
+      const sessionId = String(task?.frontmatter?.session_id || "").trim();
+      const archivedPath = String(task?.frontmatter?.archive_path || "").trim();
+      const archiveButton = el2("button", "btn", archivedPath ? "\u66F4\u65B0\u5F52\u6863" : "\u5F52\u6863\u4F1A\u8BDD");
+      archiveButton.type = "button";
+      archiveButton.disabled = state.busy || !sessionId;
+      archiveButton.title = sessionId ? `\u628A\u4F1A\u8BDD\u8BB0\u5F55\u5199\u5165 ${archiveFolder()}\uFF0C\u5E76\u56DE\u5199\u4EFB\u52A1\u5361` : "\u8FD9\u4E2A\u4EFB\u52A1\u8FD8\u6CA1\u6709\u5173\u8054\u4F1A\u8BDD\uFF0C\u5148\u6D3E\u53D1\u5230 Agent";
+      archiveButton.addEventListener("click", () => void archiveTask(task, { force: true }));
+      const archiveOpenButton = archivedPath ? el2("button", "btn", "\u6253\u5F00\u5F52\u6863") : null;
+      if (archiveOpenButton) {
+        archiveOpenButton.type = "button";
+        archiveOpenButton.disabled = state.busy;
+        archiveOpenButton.addEventListener("click", () => void openNote(archivedPath));
+      }
       const composeButton = el2("button", "btn", "\u5199\u5165\u5BF9\u8BDD");
       composeButton.type = "button";
       composeButton.disabled = state.busy;
@@ -2238,7 +2330,15 @@ ${GUEST_UI_LOOK_CSS}`;
       openButton.type = "button";
       openButton.disabled = state.busy;
       openButton.addEventListener("click", () => void openNote(task.path));
-      nodes.actions.replaceChildren(label, statusSelect, dispatchButton, composeButton, openButton);
+      nodes.actions.replaceChildren(
+        label,
+        statusSelect,
+        dispatchButton,
+        archiveButton,
+        ...archiveOpenButton ? [archiveOpenButton] : [],
+        composeButton,
+        openButton
+      );
     };
     const render2 = () => {
       nodes.error.hidden = !state.error;

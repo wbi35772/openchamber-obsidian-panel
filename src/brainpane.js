@@ -109,6 +109,7 @@ const noteUrl = async (notePath) => {
 
 const projectFolder = () => (state.projectName ? `${state.baseFolder}/${state.projectName}` : '');
 const taskFolder = () => (projectFolder() ? `${projectFolder()}/任务` : '');
+const archiveFolder = () => `会话记录/${state.projectName || '未归类'}`;
 
 const taskStatus = (task) => {
   const value = String(task?.frontmatter?.status || '');
@@ -284,8 +285,88 @@ const refresh = async () => {
       state.rerun = false;
       void refresh();
     }
+    void autoArchive();
   }
 };
+
+let autoArchiveRunning = false;
+let lastAutoArchiveAt = 0;
+
+const autoArchive = async () => {
+  if (autoArchiveRunning || state.busy || state.refreshing || !state.bound) return;
+  if (Date.now() - lastAutoArchiveAt < 60_000) return;
+  const candidates = state.tasks.filter((task) => {
+    const frontmatter = task?.frontmatter || {};
+    if (!String(frontmatter.session_id || '').trim()) return false;
+    return !(frontmatter.auto_archive === false || frontmatter.auto_archive === 'off');
+  });
+  if (!candidates.length) return;
+  lastAutoArchiveAt = Date.now();
+  autoArchiveRunning = true;
+  let changed = false;
+  try {
+    for (const task of candidates) {
+      try {
+        const result = await rest('session/archive', {
+          sessionId: String(task.frontmatter.session_id).trim(),
+          notePath: task.path,
+          project: state.projectName,
+          folder: archiveFolder(),
+          auto: true,
+        });
+        if (result && !result.skipped && result.path) {
+          changed = true;
+          state.activity = `已自动归档 ${taskTitle(task)}`;
+          state.notice = `会话记录已写入 ${result.path}`;
+        }
+      } catch {}
+    }
+  } finally {
+    autoArchiveRunning = false;
+  }
+  if (changed) {
+    try {
+      await loadTasks();
+    } catch {}
+    render();
+  }
+};
+
+const archiveTask = async (task, { force = true } = {}) => {
+  const sessionId = String(task?.frontmatter?.session_id || '').trim();
+  if (!sessionId) {
+    state.error = '这个任务还没有关联会话，请先点「派发到 Agent」。';
+    render();
+    return;
+  }
+  if (state.busy) return;
+  state.busy = true;
+  state.error = null;
+  render();
+  try {
+    const result = await rest('session/archive', {
+      sessionId,
+      notePath: task.path,
+      project: state.projectName,
+      folder: archiveFolder(),
+      force,
+    });
+    if (result?.skipped) {
+      state.activity = `会话没有新内容（${result.path || '未写入'}）`;
+      if (result.path) state.notice = `会话记录：${result.path}`;
+    } else {
+      state.activity = `已归档 ${result?.messageCount ?? 0} 条消息`;
+      if (result?.path) state.notice = `会话记录已写入 ${result.path}`;
+      await loadTasks();
+    }
+  } catch (error) {
+    state.error = messageOf(error);
+  } finally {
+    state.busy = false;
+    render();
+  }
+};
+
 
 const bindProject = async () => {
   if (state.busy || !state.projectName) return;
@@ -495,6 +576,25 @@ const renderActions = () => {
     : '新建会话；这个知识库项目没有匹配的 OpenChamber 项目，会在当前目录打开';
   dispatchButton.addEventListener('click', () => void dispatch(task));
 
+  const sessionId = String(task?.frontmatter?.session_id || '').trim();
+  const archivedPath = String(task?.frontmatter?.archive_path || '').trim();
+  const archiveButton = el('button', 'btn', archivedPath ? '更新归档' : '归档会话');
+  archiveButton.type = 'button';
+  archiveButton.disabled = state.busy || !sessionId;
+  archiveButton.title = sessionId
+    ? `把会话记录写入 ${archiveFolder()}，并回写任务卡`
+    : '这个任务还没有关联会话，先派发到 Agent';
+  archiveButton.addEventListener('click', () => void archiveTask(task, { force: true }));
+
+  const archiveOpenButton = archivedPath
+    ? el('button', 'btn', '打开归档')
+    : null;
+  if (archiveOpenButton) {
+    archiveOpenButton.type = 'button';
+    archiveOpenButton.disabled = state.busy;
+    archiveOpenButton.addEventListener('click', () => void openNote(archivedPath));
+  }
+
   const composeButton = el('button', 'btn', '写入对话');
   composeButton.type = 'button';
   composeButton.disabled = state.busy;
@@ -505,7 +605,15 @@ const renderActions = () => {
   openButton.disabled = state.busy;
   openButton.addEventListener('click', () => void openNote(task.path));
 
-  nodes.actions.replaceChildren(label, statusSelect, dispatchButton, composeButton, openButton);
+  nodes.actions.replaceChildren(
+    label,
+    statusSelect,
+    dispatchButton,
+    archiveButton,
+    ...(archiveOpenButton ? [archiveOpenButton] : []),
+    composeButton,
+    openButton,
+  );
 };
 
 const render = () => {
