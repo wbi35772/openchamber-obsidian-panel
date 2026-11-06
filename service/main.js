@@ -5008,6 +5008,7 @@ var createObsidianRuntime = ({
 import crypto2 from "node:crypto";
 import fs from "node:fs";
 import http2 from "node:http";
+import os2 from "node:os";
 import path3 from "node:path";
 
 // src/rest.js
@@ -5498,6 +5499,60 @@ var localStamp = (date = /* @__PURE__ */ new Date()) => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
 };
 var yamlString = (value) => `'${String(value ?? "").replace(/'/g, "''")}'`;
+var openChamberSettingsFile = () => path3.join(
+  process.env.OPENCHAMBER_DATA_DIR ? path3.resolve(process.env.OPENCHAMBER_DATA_DIR) : path3.join(os2.homedir(), ".config", "openchamber"),
+  "settings.json"
+);
+var openChamberOrigin = () => {
+  try {
+    const settings = JSON.parse(fs.readFileSync(openChamberSettingsFile(), "utf8"));
+    const port = Number(settings?.desktopLocalPort);
+    if (Number.isInteger(port) && port > 0 && port <= 65535) return `http://127.0.0.1:${port}`;
+  } catch {
+  }
+  return "";
+};
+var projectIdForDirectory = (directory) => `path_${Buffer.from(String(directory || "").replace(/\\/g, "/"), "utf8").toString("base64url")}`;
+var projectPathKey = (value) => String(value || "").replace(/[\\/]+/g, "\\").replace(/\\+$/, "").toLowerCase();
+var registerOpenChamberProject = async ({ directory, label }) => {
+  const origin = openChamberOrigin();
+  if (!origin) throw new Error("OpenChamber \u7AEF\u53E3\u672A\u77E5\uFF0C\u8BF7\u786E\u8BA4\u4E3B\u7A0B\u5E8F\u6B63\u5728\u8FD0\u884C");
+  fs.mkdirSync(directory, { recursive: true });
+  let resolved = path3.resolve(directory);
+  try {
+    resolved = fs.realpathSync.native(resolved);
+  } catch {
+  }
+  const read = await fetch(`${origin}/api/config/settings`, { headers: { accept: "application/json" } });
+  if (!read.ok) throw new Error(`\u8BFB\u53D6 OpenChamber \u8BBE\u7F6E\u5931\u8D25\uFF08HTTP ${read.status}\uFF09`);
+  const settings = await read.json();
+  const projects = Array.isArray(settings?.projects) ? settings.projects.slice() : [];
+  const wantedId = projectIdForDirectory(resolved);
+  const existing = projects.find((entry) => projectPathKey(entry?.path) === projectPathKey(resolved) || projectPathKey(entry?.id) === projectPathKey(wantedId));
+  const now = Date.now();
+  const project = existing ? { ...existing, label: label || existing.label, path: resolved, lastOpenedAt: now } : {
+    id: wantedId,
+    path: resolved,
+    label: label || path3.basename(resolved),
+    color: "#30a46c",
+    addedAt: now,
+    lastOpenedAt: now,
+    labelSource: "auto",
+    sidebarCollapsed: false
+  };
+  if (existing) projects[projects.indexOf(existing)] = project;
+  else projects.push(project);
+  const activeProjectId = typeof settings?.activeProjectId === "string" && settings.activeProjectId ? settings.activeProjectId : project.id;
+  const write = await fetch(`${origin}/api/config/settings`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ projects, activeProjectId })
+  });
+  if (!write.ok) throw new Error(`\u5199\u5165 OpenChamber \u8BBE\u7F6E\u5931\u8D25\uFF08HTTP ${write.status}\uFF09`);
+  const saved = await write.json().catch(() => null);
+  const savedProject = Array.isArray(saved?.projects) ? saved.projects.find((entry) => entry?.id === project.id || projectPathKey(entry?.path) === projectPathKey(project.path)) || project : project;
+  return { ok: true, project: savedProject, origin };
+};
 var escapeHtml = (value) => String(value ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 var slugTitle = (title) => String(title ?? "").replace(/[\\/:*?"<>|#^[\]]/g, "").replace(/\s+/g, "-").replace(/^-+|-+$/g, "").slice(0, 80) || "task";
 var createService = ({ runtime, token, port = 0 }) => {
@@ -5852,6 +5907,12 @@ updated_at: ${yamlString(stamp)}
           const tasksNote = await rest.ensureNote(`${folder}/\u4EFB\u52A1/README.md`, tasksIndex);
           return { ok: true, folder, index: indexNote, tasks: tasksNote };
         });
+      }
+      if (url.pathname === "/obsidian/rest/project/register") {
+        const directory = typeof body?.directory === "string" ? body.directory.trim().slice(0, 1024) : "";
+        const label = stringField(body, "label", 120);
+        if (!directory) return text(response, 400, "directory is required\n");
+        return restAction(response, async () => registerOpenChamberProject({ directory, label }));
       }
       if (url.pathname === "/obsidian/rest/task/create") {
         const folder = stringField(body, "folder", 512);

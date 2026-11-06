@@ -38,6 +38,10 @@ const state = {
   rerun: false,
   ready: false,
   freshProject: '',
+  freshOcProject: null,
+  taskCreate: false,
+  taskCreateFocus: false,
+  notice: '',
   error: null,
   activity: '就绪。',
 };
@@ -219,6 +223,12 @@ const loadProjects = async () => {
     if (!state.vaultProjects.includes(state.freshProject)) state.vaultProjects.push(state.freshProject);
     state.freshProject = '';
   }
+  if (state.freshOcProject && !state.ocProjects.some((project) => project.id === state.freshOcProject.id)) {
+    state.ocProjects.push(state.freshOcProject);
+  }
+  if (state.freshOcProject && state.ocProjects.some((project) => project.id === state.freshOcProject.id)) {
+    state.freshOcProject = null;
+  }
   resolveProject();
   if (state.projectName && !state.vaultProjects.includes(state.projectName)) state.vaultProjects.push(state.projectName);
 };
@@ -367,7 +377,65 @@ const renderList = () => {
     return;
   }
   if (!state.tasks.length) {
-    nodes.list.replaceChildren(emptyBlock('还没有任务。到完整 Brain 页面新建一个任务。'));
+    if (state.taskCreate) {
+      const form = el('div', 'empty');
+      const input = el('input');
+      input.type = 'text';
+      input.placeholder = '任务标题';
+      input.style.cssText = inputStyle;
+      const ok = el('button', 'btn primary', '创建');
+      ok.type = 'button';
+      const cancel = el('button', 'btn', '取消');
+      cancel.type = 'button';
+      const submit = async () => {
+        const title = input.value.trim();
+        if (!title || state.busy) return;
+        state.busy = true;
+        state.error = null;
+        render();
+        try {
+          await rest('task/create', { folder: taskFolder(), title, project: state.projectName });
+          state.taskCreate = false;
+          state.taskCreateFocus = false;
+          await loadTasks();
+          state.activity = `已创建任务 ${title}`;
+        } catch (error) {
+          state.error = messageOf(error);
+        } finally {
+          state.busy = false;
+          render();
+        }
+      };
+      ok.addEventListener('click', () => void submit());
+      cancel.addEventListener('click', () => {
+        state.taskCreate = false;
+        render();
+      });
+      input.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          void submit();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          state.taskCreate = false;
+          render();
+        }
+      });
+      form.append(input, ok, cancel);
+      nodes.list.replaceChildren(form);
+      if (state.taskCreateFocus) {
+        state.taskCreateFocus = false;
+        try {
+          input.focus({ preventScroll: true });
+        } catch {}
+      }
+      return;
+    }
+    nodes.list.replaceChildren(emptyBlock('这个项目还没有任务。', '＋ 新建任务', () => {
+      state.taskCreate = true;
+      state.taskCreateFocus = true;
+      render();
+    }));
     return;
   }
   nodes.list.replaceChildren(...state.tasks.map((task) => {
@@ -433,6 +501,10 @@ const render = () => {
   renderProjects();
   renderList();
   renderActions();
+  if (notice) {
+    notice.hidden = !state.notice;
+    notice.textContent = state.notice;
+  }
   const parts = [state.activity];
   if (state.ocProjectId) parts.push(`会话 ${state.sessions}`);
   nodes.foot.textContent = parts.filter(Boolean).join(' · ');
@@ -565,22 +637,38 @@ const selectProject = (value) => {
     state.projectDirectory = '';
   }
   state.selectedPath = '';
+  state.notice = '';
   void saveSettings();
   void refresh();
 };
 
+const inputStyle = 'flex:1;min-width:0;padding:3px 6px;border:1px solid var(--oc-border, rgba(127,127,127,.35));border-radius:4px;background:var(--oc-elevated, transparent);color:inherit;font:inherit;';
+
 const createRow = el('div', 'create-row');
-createRow.style.cssText = 'display:none;gap:4px;align-items:center;padding:4px 8px;';
+createRow.style.cssText = 'display:none;flex-direction:column;gap:4px;padding:4px 8px;';
+const createNameRow = el('div');
+createNameRow.style.cssText = 'display:flex;gap:4px;align-items:center;';
 const createInput = el('input');
 createInput.type = 'text';
 createInput.placeholder = '新项目名称';
-createInput.style.cssText = 'flex:1;min-width:0;padding:3px 6px;border:1px solid var(--oc-border, rgba(127,127,127,.35));border-radius:4px;background:var(--oc-elevated, transparent);color:inherit;font:inherit;';
+createInput.style.cssText = inputStyle;
 const createOk = el('button', 'btn primary', '创建');
 createOk.type = 'button';
 const createCancel = el('button', 'btn', '取消');
 createCancel.type = 'button';
-createRow.append(createInput, createOk, createCancel);
+createNameRow.append(createInput, createOk, createCancel);
+const createDirInput = el('input');
+createDirInput.type = 'text';
+createDirInput.placeholder = '项目目录（留空用知识库文件夹）';
+createDirInput.style.cssText = inputStyle;
+createRow.append(createNameRow, createDirInput);
 if (nodes.project.parentElement) nodes.project.parentElement.insertAdjacentElement('afterend', createRow);
+
+const notice = el('div', 'notice-line');
+notice.style.cssText = 'padding:2px 8px 4px;font-size:11px;line-height:1.45;opacity:.72;';
+notice.hidden = true;
+if (createRow.parentElement) createRow.insertAdjacentElement('afterend', notice);
+else root.append(notice);
 
 const hideCreate = () => {
   createRow.style.display = 'none';
@@ -589,30 +677,56 @@ const hideCreate = () => {
 const showCreate = () => {
   createRow.style.display = 'flex';
   createInput.value = '';
+  createDirInput.value = '';
   try {
     createInput.focus({ preventScroll: true });
   } catch {}
 };
 
+const joinPath = (...parts) => parts
+  .map((part) => String(part || '').trim())
+  .filter(Boolean)
+  .map((part, index) => (index === 0
+    ? part.replace(/[\\/]+$/, '')
+    : part.replace(/^[\\/]+|[\\/]+$/g, '').replace(/[\\/]+/g, '\\')))
+  .join('\\');
+
 const createProject = async () => {
   const name = createInput.value.trim();
   if (!name || state.busy) return;
+  const directory = (createDirInput.value.trim() || joinPath(state.vaultPath, state.baseFolder, name))
+    .replace(/\//g, '\\');
   state.busy = true;
   state.error = null;
   render();
   try {
-    await rest('project/init', { baseFolder: state.baseFolder, project: name, projectPath: '' });
+    await rest('project/init', { baseFolder: state.baseFolder, project: name, projectPath: directory });
     if (!state.vaultProjects.includes(name)) state.vaultProjects.push(name);
+    let registered = null;
+    try {
+      registered = await rest('project/register', { directory, label: name });
+    } catch (error) {
+      state.error = `项目已创建，但同步到 OpenChamber 失败：${messageOf(error)}`;
+    }
+    const project = registered?.project || null;
+    if (project?.id) {
+      state.freshOcProject = { id: project.id, name: project.label || name, directory: project.path || directory };
+      if (!state.ocProjects.some((item) => item.id === project.id)) state.ocProjects.push(state.freshOcProject);
+    }
     state.followHost = false;
-    state.ocProjectId = '';
-    state.ocProjectName = '';
+    state.ocProjectId = project?.id || '';
+    state.ocProjectName = project?.label || name;
     state.projectName = name;
     state.freshProject = name;
-    state.projectDirectory = '';
+    state.projectDirectory = directory;
     state.selectedPath = '';
+    state.taskCreate = false;
+    state.notice = project
+      ? '已写入 OpenChamber 项目列表：按 Ctrl+R 刷新后出现在左侧，并保持当前选中。'
+      : '';
     await saveSettings();
     hideCreate();
-    state.activity = `已创建 ${name}`;
+    state.activity = project ? `已创建 ${name}，已加入 OpenChamber 项目` : `已创建 ${name}`;
   } catch (error) {
     state.error = messageOf(error);
   } finally {

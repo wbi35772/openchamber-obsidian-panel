@@ -19,6 +19,8 @@ Obsidian Local REST API 桥，供 Brain 与 Agent 读写知识库。
 | 布局持久化 | 已修 | 新键 `panel-layout`，旧键 `layout` 故意忽略 |
 | Brain 行选择 / 状态切换 / 派发 / 写入对话 / 打开 | 已修 | 刷新与用户操作拆成两个状态位 |
 | Brain 项目下拉 | 已修 | 仅在选项内容变化时重建，刷新不再关闭展开的下拉 |
+| 新建知识库项目 → 注册进 OpenChamber | 已通 | `project/init` 后调 `project/register` 写 `settings.json`；提示 Ctrl+R 刷新左栏 |
+| 右栏内联新建任务 | 已加 | 空任务列表直接出标题输入框，Enter/创建写 `task/create` |
 | 仓库标签切换（多 vault） | 已修 | `#vaults` 不再被误隐藏；点击走 `/obsidian/select` |
 | 全屏 Brain 页 | 可用 | 项目/任务 CRUD、会话同步、派发 |
 | 左侧紧凑 Brain 状态区 | 已修 | 不再依赖宿主 `ready`；无 `ready` 也能出项目选项并新建 |
@@ -46,6 +48,14 @@ Obsidian Local REST API 桥，供 Brain 与 Agent 读写知识库。
    `host.listProjects()` 无条件尝试（失败吞掉）、`onReady` 先落 `ready` 再
    try/catch 应用主题；`hello` 补发最多 60 次。另加 `freshProject`：新建项目
    在 projects 列表尚未刷新时不会被 `resolveProject` 清空。
+7. **新建项目不进 OpenChamber 左栏**：`project/init` 只写 Obsidian，宿主项目列表
+   存在 `~/.config/openchamber/settings.json` 的 `projects`。服务端新增
+   `POST /obsidian/rest/project/register`：读 `desktopLocalPort` → `GET/PUT
+   /api/config/settings`，按目录去重、补 `path_<base64url>` id，保留当前
+   `activeProjectId`。Brain 新建时自动注册并选中；因宿主没有 settings 广播，
+   注册后在下拉下方提示「按 Ctrl+R 刷新后出现在左侧」。
+8. **右栏不能建任务**：空任务列表增加内联「任务标题」输入，直接调
+   `task/create`（文件夹取当前项目 `任务/`），成功后重新拉取任务。
 
 ## 验证证据
 
@@ -63,12 +73,18 @@ Obsidian Local REST API 桥，供 Brain 与 Agent 读写知识库。
     选择 `vault:test` 后 `settings` 持久化并重新拉取任务；
   - **无 `ready` 场景**（假宿主只回 REST、从不推 `ready`，加载 `brain/section.html`）：
     项目下拉出现 `初始配置 / test / ＋ 新建项目…` 并默认选中 `oc:p1`；
-    选 `＋ 新建项目…` 出现输入行，建「新建演示」后选项与选中值同步、`project/init`
-    请求体正确；切到 `vault:test` 重新拉任务并写入 `settings`；
+    选 `＋ 新建项目…` 出现名称 + 目录两行输入，建「新建演示」后选项与选中值同步、
+    `project/init` 与 `project/register` 请求体正确；下拉下方出现 Ctrl+R 提示；
+    切到 `vault:test` 后提示自动清除并重新拉任务；
+  - 空任务列表出现内联「任务标题」输入，Enter/创建调用 `task/create`；
   - `boot-error` 为空。
-- 安装目录 8 个文件 SHA256 与仓库一致：`package.json`、`panel/index.html`、
+- **注册路由实测**（独立 `createService` + 运行中的宿主）：
+  `POST /obsidian/rest/project/register` 返回 200，项目以
+  `path_<base64url>` id 写入 `settings.json`；第二次调用不产生重复；
+  当前 `activeProjectId` 保持不变；测试后恢复原 6 个项目。
+- 安装目录 7 个文件 SHA256 与仓库一致：`package.json`、`panel/index.html`、
   `panel/main.js`、`brain/index.html`、`brain/main.js`、`brain/section.html`、
-  `brain/section.js`、`service/main.js`。
+  `brain/section.js`、`service/main.js`（`manifest` 由 `package.json` 承担）。
 - **尚未在宿主 Electron 内实测**（无 CDP 可挂载），需要 `Ctrl+R` 后人工确认。
 
 ## 待用户实测（下轮开场）
@@ -77,8 +93,11 @@ Obsidian Local REST API 桥，供 Brain 与 Agent 读写知识库。
 2. 点任务行是否出现操作栏，状态下拉/派发/写入对话/打开是否都能点。
 3. Obsidian 工具条是否出现 `brain / 归纳` 两个仓库标签并可切换。
 4. 左侧「Brain 任务」里的「选择项目」下拉能否展开、选中后任务列表是否跟着切换。
-5. Obsidian 画面输入：鼠标点击、滚轮、键盘、中文输入法、粘贴、右键。
-6. 顶栏是否出现红色报错条（若出现，把文字发来）。
+5. 用「＋ 新建项目…」建一个项目：左栏是否出现该项目（若没有，再按一次 `Ctrl+R`）、
+   下拉下方是否出现 Ctrl+R 提示、提示是否在切换项目后消失。
+6. 空项目里点「＋ 新建任务」输入标题回车，任务是否出现。
+7. Obsidian 画面输入：鼠标点击、滚轮、键盘、中文输入法、粘贴、右键。
+8. 顶栏是否出现红色报错条（若出现，把文字发来）。
 
 ## 下一轮待办（按优先级）
 

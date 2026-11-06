@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import http from 'node:http';
+import os from 'node:os';
 import path from 'node:path';
 import {
   createRestClient,
@@ -121,6 +122,74 @@ const localStamp = (date = new Date()) => {
 };
 
 const yamlString = (value) => `'${String(value ?? '').replace(/'/g, "''")}'`;
+
+const openChamberSettingsFile = () => path.join(
+  process.env.OPENCHAMBER_DATA_DIR ? path.resolve(process.env.OPENCHAMBER_DATA_DIR) : path.join(os.homedir(), '.config', 'openchamber'),
+  'settings.json',
+);
+
+const openChamberOrigin = () => {
+  try {
+    const settings = JSON.parse(fs.readFileSync(openChamberSettingsFile(), 'utf8'));
+    const port = Number(settings?.desktopLocalPort);
+    if (Number.isInteger(port) && port > 0 && port <= 65_535) return `http://127.0.0.1:${port}`;
+  } catch {}
+  return '';
+};
+
+const projectIdForDirectory = (directory) => `path_${Buffer.from(String(directory || '').replace(/\\/g, '/'), 'utf8').toString('base64url')}`;
+
+const projectPathKey = (value) => String(value || '').replace(/[\\/]+/g, '\\').replace(/\\+$/, '').toLowerCase();
+
+const registerOpenChamberProject = async ({ directory, label }) => {
+  const origin = openChamberOrigin();
+  if (!origin) throw new Error('OpenChamber 端口未知，请确认主程序正在运行');
+  fs.mkdirSync(directory, { recursive: true });
+  let resolved = path.resolve(directory);
+  try {
+    resolved = fs.realpathSync.native(resolved);
+  } catch {}
+  const read = await fetch(`${origin}/api/config/settings`, { headers: { accept: 'application/json' } });
+  if (!read.ok) throw new Error(`读取 OpenChamber 设置失败（HTTP ${read.status}）`);
+  const settings = await read.json();
+  const projects = Array.isArray(settings?.projects) ? settings.projects.slice() : [];
+  const wantedId = projectIdForDirectory(resolved);
+  const existing = projects.find((entry) => (
+    projectPathKey(entry?.path) === projectPathKey(resolved)
+    || projectPathKey(entry?.id) === projectPathKey(wantedId)
+  ));
+  const now = Date.now();
+  const project = existing
+    ? { ...existing, label: label || existing.label, path: resolved, lastOpenedAt: now }
+    : {
+      id: wantedId,
+      path: resolved,
+      label: label || path.basename(resolved),
+      color: '#30a46c',
+      addedAt: now,
+      lastOpenedAt: now,
+      labelSource: 'auto',
+      sidebarCollapsed: false,
+    };
+  if (existing) projects[projects.indexOf(existing)] = project;
+  else projects.push(project);
+  const activeProjectId = typeof settings?.activeProjectId === 'string' && settings.activeProjectId
+    ? settings.activeProjectId
+    : project.id;
+  const write = await fetch(`${origin}/api/config/settings`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ projects, activeProjectId }),
+  });
+  if (!write.ok) throw new Error(`写入 OpenChamber 设置失败（HTTP ${write.status}）`);
+  const saved = await write.json().catch(() => null);
+  const savedProject = Array.isArray(saved?.projects)
+    ? saved.projects.find((entry) => (
+      entry?.id === project.id || projectPathKey(entry?.path) === projectPathKey(project.path)
+    )) || project
+    : project;
+  return { ok: true, project: savedProject, origin };
+};
 
 const escapeHtml = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -503,6 +572,13 @@ a { color: #6aa9ff; }
           const tasksNote = await rest.ensureNote(`${folder}/任务/README.md`, tasksIndex);
           return { ok: true, folder, index: indexNote, tasks: tasksNote };
         });
+      }
+
+      if (url.pathname === '/obsidian/rest/project/register') {
+        const directory = typeof body?.directory === 'string' ? body.directory.trim().slice(0, 1024) : '';
+        const label = stringField(body, 'label', 120);
+        if (!directory) return text(response, 400, 'directory is required\n');
+        return restAction(response, async () => registerOpenChamberProject({ directory, label }));
       }
 
       if (url.pathname === '/obsidian/rest/task/create') {
