@@ -214,3 +214,5 @@ foreach ($f in 'package.json','panel\index.html','panel\main.js','brain\index.ht
 - 左侧 Brain 项目下拉新增「＋ 新建项目…」，可填名称与目录；创建后调用 project/register 写入 OpenChamber 设置，并自动选中、跨定时刷新保持选择。
 - 任务区支持连续新建：有任务时底部保留「＋ 新建任务」，空任务区也能直接建任务。
 - 新建项目要出现在 OpenChamber 左侧项目列表，仍需 Ctrl+R（宿主不广播设置变更，见上文）。
+
+- 2026-11-06：manifest 增加 contributes.capabilities ["sessions","prompt"]，并向宿主授予 prompt/sessions/service；修复「派发到 Agent」报 capability 未授权。
